@@ -275,7 +275,13 @@ def _collect_settings_actions_sync(
                 continue
 
             annotation = field_info.annotation
-            current_value = current_section.get(field_name, field_info.default)
+            if field_name in current_section:
+                current_value = current_section[field_name]
+            else:
+                try:
+                    current_value = field_info.get_default(call_default_factory=True)
+                except TypeError:
+                    current_value = field_info.default
 
             descriptor = _build_descriptor_for_field(
                 plugin_id=pid,

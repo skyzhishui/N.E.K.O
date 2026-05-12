@@ -46,6 +46,7 @@ class NekoPluginBase(_SharedNekoPluginBase):
         self.i18n = self._load_plugin_i18n()
         self._static_ui_config: dict[str, Any] | None = None
         self._list_actions: list[dict[str, Any]] = []
+        self._last_attachments: list[dict] = []
         self._dynamic_entries: dict[str, dict[str, Any]] = {}
         # plugin_id-scoped registry of LLM tools we've claimed locally.
         # Tracks (name -> LlmToolMeta) so we can re-emit IPC notifications
@@ -111,7 +112,8 @@ class NekoPluginBase(_SharedNekoPluginBase):
         return Path(config_path).parent if config_path is not None else Path.cwd()
 
     def data_path(self, *parts: str) -> Path:
-        base = self.config_dir / "data"
+        from plugin.sdk.shared.core.base_runtime import resolve_plugin_data_dir
+        base = resolve_plugin_data_dir(self.ctx)
         return base.joinpath(*parts) if parts else base
 
     @property

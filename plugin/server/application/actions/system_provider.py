@@ -220,14 +220,14 @@ def _collect_system_actions_sync(
             actions.append(ActionDescriptor(
                 action_id=f"system:{pid}:open_ui",
                 type="navigation",
-                label=f"打开 {plugin_name} UI",
+                label=f"Open {plugin_name} UI",
                 description="",
                 category=plugin_name,
                 plugin_id=pid,
                 target=f"http://127.0.0.1:{_ui_port}/plugin/{pid}/ui/",
                 open_in="new_tab",
                 icon="↗",
-                keywords=[pid, plugin_name, "ui", "界面"],
+                keywords=[pid, plugin_name, "ui", "interface", "open"],
             ))
 
     return actions

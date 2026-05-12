@@ -149,7 +149,12 @@ class SystemInfo:
             )
 
     async def get_user_language(self, *, timeout: float = 5.0) -> Result[str, SystemInfoErrorLike]:
-        """Return the user's configured language code from the host."""
+        """Return the user's configured language code from the host.
+
+        Returns Ok("") when no language is configured — callers should
+        treat an empty string as "language not set" and fall back to their
+        own default locale.
+        """
         timeout_ok = self._validate_timeout(timeout)
         if isinstance(timeout_ok, Err):
             return cast(Result[str, SystemInfoErrorLike], timeout_ok)
