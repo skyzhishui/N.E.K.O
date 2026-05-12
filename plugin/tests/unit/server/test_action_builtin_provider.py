@@ -87,6 +87,9 @@ class TestBuiltinActions:
             hosts={"a": object(), "b": object()},
         )
         actions = _collect(state, plugin_id="b")
+        # Non-empty guard: an `all(...)` over `[]` would trivially pass and
+        # mask a regression that drops the filter result entirely.
+        assert actions
         assert all(a.plugin_id == "b" for a in actions)
 
     def test_non_mapping_meta_skipped(self) -> None:
