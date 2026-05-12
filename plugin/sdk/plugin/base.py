@@ -156,7 +156,7 @@ class NekoPluginBase(_SharedNekoPluginBase):
             result = self.ctx.get_attachments()
             if isinstance(result, list):
                 self._last_attachments = list(result)
-                return self._last_attachments
+                return list(self._last_attachments)
         except Exception:
             pass  # ctx may not support get_attachments; fall back to cache
         return list(self._last_attachments)
@@ -186,7 +186,7 @@ class NekoPluginBase(_SharedNekoPluginBase):
                 self.set_user_language(lang)
                 return lang
         except Exception:
-            pass
+            pass  # non-critical; fall back to cached/context language
         return self.get_user_language()
 
     async def finish(self, **kwargs: Any) -> Any:

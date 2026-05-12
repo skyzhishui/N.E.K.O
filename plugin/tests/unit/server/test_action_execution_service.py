@@ -238,13 +238,22 @@ class TestSettingsActions:
             captured["mode"] = mode
             return {"message": "ok"}
 
+        # Provide a fake PluginSettings class with a hot field
+        from pydantic import BaseModel, Field
+
+        class _FakeSettings(BaseModel):
+            class Config:
+                pass
+            model_config = {"toml_section": "settings"}
+            enabled: bool = Field(default=False, json_schema_extra={"hot": True})
+
         monkeypatch.setattr(
             "plugin.server.application.actions.execution_service.hot_update_plugin_config",
             fake_hot_update,
         )
         monkeypatch.setattr(
             "plugin.server.application.actions.execution_service.resolve_settings_class",
-            lambda pid: None,
+            lambda pid, **kw: _FakeSettings,
         )
 
         svc = _build_service()

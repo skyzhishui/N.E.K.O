@@ -67,7 +67,7 @@ def _save_sync(prefs: UserActionPreferences) -> None:
         try:
             os.unlink(tmp_path)
         except OSError:
-            pass
+            pass  # best-effort cleanup; temp file may already be gone
         raise
 
 
