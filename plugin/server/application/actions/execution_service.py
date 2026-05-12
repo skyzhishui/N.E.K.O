@@ -84,9 +84,26 @@ class _SettingsActionHandler:
         settings_cls = await asyncio.to_thread(
             resolve_settings_class, plugin_id,
         )
-        toml_section = "settings"
-        if settings_cls is not None:
-            toml_section = settings_cls.model_config.get("toml_section", "settings")
+        if settings_cls is None:
+            raise ServerDomainError(
+                code="SETTINGS_NOT_FOUND",
+                message=f"Plugin '{plugin_id}' has no PluginSettings class",
+                status_code=404,
+                details={"plugin_id": plugin_id},
+            )
+
+        # Validate the field is actually a hot field
+        from plugin.sdk.plugin.settings import get_hot_fields
+        hot_fields = get_hot_fields(settings_cls)
+        if field_name not in hot_fields:
+            raise ServerDomainError(
+                code="FIELD_NOT_HOT",
+                message=f"Field '{field_name}' is not a hot-updatable setting",
+                status_code=403,
+                details={"plugin_id": plugin_id, "field": field_name},
+            )
+
+        toml_section = settings_cls.model_config.get("toml_section", "settings")
 
         updates: dict[str, object] = {toml_section: {field_name: value}}
 

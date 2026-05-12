@@ -246,6 +246,10 @@ def _collect_settings_actions_sync(
 
         # Read current effective config (includes temporary hot-updates),
         # falling back to TOML file if effective config is unavailable.
+        # NOTE: When host.get_effective_config() is not available (current state),
+        # temporary hot-updates won't be reflected until the plugin persists them.
+        # The frontend works around this by using the ActionExecuteResponse.action
+        # field which returns the freshly-computed descriptor after execution.
         current_section: dict[str, Any] = {}
         try:
             effective = getattr(host, "get_effective_config", None)

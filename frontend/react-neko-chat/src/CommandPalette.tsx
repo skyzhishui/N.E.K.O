@@ -403,7 +403,8 @@ function CommandRow({ item, loading, error, highlighted, prefs, onExec, onInject
 
   const hasInlineWidget = item.type === 'instant' && (
     item.control === 'toggle' || item.control === 'entry_toggle' ||
-    item.control === 'dropdown' || item.control === 'slider' || item.control === 'number'
+    item.control === 'dropdown' || item.control === 'slider' || item.control === 'number' ||
+    item.control === 'text'
   );
 
   const hasParams = (() => {
