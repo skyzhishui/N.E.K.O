@@ -2090,6 +2090,10 @@ svg {
   background: rgba(68, 183, 254, 0.15);
 }
 
+[data-theme="dark"] .composer-quick-actions-btn.is-active {
+  background: rgba(68, 183, 254, 0.26);
+}
+
 [data-theme="dark"] .composer-emoji-btn.is-active {
   background: rgba(68, 183, 254, 0.26);
 }
@@ -2231,8 +2235,25 @@ svg {
   justify-content: center;
   width: 20px;
   height: 20px;
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 500;
   line-height: 1;
+  color: #44b7fe;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.composer-quick-actions-btn:hover .composer-quick-actions-glyph {
+  opacity: 1;
+}
+
+.composer-quick-actions-btn.is-active .composer-quick-actions-glyph {
+  opacity: 1;
+  color: #2196f3;
+}
+
+.composer-quick-actions-btn.is-active {
+  background: rgba(68, 183, 254, 0.18);
 }
 
 .cp-panel {
