@@ -224,8 +224,15 @@ describe('Sections', () => {
     renderPalette(allItems, prefs);
     const input = screen.getByPlaceholderText('搜索操作...');
     fireEvent.change(input, { target: { value: 'Greet' } });
-    // Should appear in search results even though hidden
-    expect(screen.getByText('Greet')).toBeInTheDocument();
+    // Should appear in search results even though hidden.
+    const label = screen.getByText('Greet');
+    expect(label).toBeInTheDocument();
+    // Lock the "greyed" visual: the row's wrap element must carry the
+    // is-hidden class. Without this, a style regression that drops the
+    // class would still leave the visibility-only assertion green.
+    const wrap = label.closest('.cp-row-wrap');
+    expect(wrap).not.toBeNull();
+    expect(wrap).toHaveClass('is-hidden');
   });
 
   it('does not duplicate pinned items in the all section', () => {
@@ -343,5 +350,66 @@ describe('Slider control', () => {
     const input = screen.getByRole('slider');
     expect(input).toHaveAttribute('min', '0');
     expect(input).toHaveAttribute('max', '100');
+  });
+});
+
+describe('Parameter form submit', () => {
+  it('omits untouched optional fields so the server default applies', async () => {
+    const { onExecute } = renderPalette([buttonWithParams]);
+    const search = screen.getByPlaceholderText('搜索操作...');
+
+    // Open the parameter form for the button-with-params item.
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(screen.getByText('Name')).toBeInTheDocument();
+
+    // Submit without filling anything. Previously this would coerce blank
+    // string into `{name: ""}`, actively overriding the plugin/server
+    // default; the fix should send an empty payload instead.
+    fireEvent.click(screen.getByText('确认'));
+
+    await waitFor(() => {
+      expect(onExecute).toHaveBeenCalledWith('system:demo:entry:with_params', {});
+    });
+  });
+
+  it('emits filled fields verbatim', async () => {
+    const { onExecute } = renderPalette([buttonWithParams]);
+    const search = screen.getByPlaceholderText('搜索操作...');
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+
+    const nameInput = screen.getByPlaceholderText('name');
+    fireEvent.change(nameInput, { target: { value: 'hello' } });
+    fireEvent.click(screen.getByText('确认'));
+
+    await waitFor(() => {
+      expect(onExecute).toHaveBeenCalledWith('system:demo:entry:with_params', { name: 'hello' });
+    });
+  });
+});
+
+describe('Grouped view keyboard activation', () => {
+  it('activates the highlighted row via Enter even when rendered grouped', async () => {
+    // Use only the chat_inject item so Enter activation calls onInjectText
+    // (button/instant items have other code paths; chat_inject is the
+    // simplest one to assert on). The keyboard handler in CommandPalette
+    // dispatches Enter by clicking the `.cp-row-highlighted.cp-row-clickable`
+    // element, which only resolves if PluginCard actually passes the
+    // highlighted prop through to its children.
+    const { onInjectText } = renderPalette([inject]);
+
+    // Switch to "按插件" (byPlugin) view. The button text is "🧩 按插件";
+    // match by regex so the leading emoji doesn't trip exact-match.
+    fireEvent.click(screen.getByRole('button', { name: /按插件/ }));
+
+    const input = screen.getByPlaceholderText('搜索操作...');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(onInjectText).toHaveBeenCalledWith('@Demo /greet');
+    });
   });
 });

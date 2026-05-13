@@ -32,6 +32,16 @@ logger = get_logger("server.application.actions.execution")
 # Shared helper
 # ======================================================================
 
+# Known lifecycle keywords that authorize the ``system:`` prefix to mean
+# "system-handler lifecycle action" rather than "plugin literally named
+# system". Module-level so dispatch (``ActionExecutionService.execute``) and
+# action_id → plugin_id reverse lookup (``_plugin_id_from_action_id``,
+# ``_find_action``) stay in sync.
+_SYSTEM_LIFECYCLE_KEYS: frozenset[str] = frozenset({
+    "start", "stop", "reload", "toggle", "profile", "entry",
+})
+
+
 def _is_plugin_running(plugin_id: str) -> bool:
     from plugin.core.state import state
 
@@ -45,17 +55,7 @@ async def _find_action(
 ) -> ActionDescriptor | None:
     """Re-fetch the updated ActionDescriptor for *action_id*."""
     try:
-        # Determine plugin_id from action_id for efficient filtering
-        plugin_id: str | None = None
-        if action_id.startswith("system:"):
-            parts = action_id.split(":")
-            if len(parts) >= 2:
-                plugin_id = parts[1]
-        else:
-            parts = action_id.split(":")
-            if parts:
-                plugin_id = parts[0]
-
+        plugin_id = _plugin_id_from_action_id(action_id)
         all_actions = await aggregation.aggregate_actions(plugin_id=plugin_id)
         for action in all_actions:
             if action.action_id == action_id:
@@ -63,6 +63,35 @@ async def _find_action(
     except Exception as exc:
         logger.warning("Failed to re-fetch action {}: {}", action_id, str(exc))
     return None
+
+
+def _plugin_id_from_action_id(action_id: str) -> str | None:
+    """Map an action_id to its owning plugin_id.
+
+    Mirrors the structural dispatch in :class:`ActionExecutionService.execute`
+    so a plugin literally named ``system`` doesn't get its settings / list
+    actions misclassified as lifecycle calls. The rule (precedence matters):
+
+    1. ``{plugin_id}:settings:{field}`` → ``parts[0]``. Checked first so a
+       field name that happens to collide with a lifecycle keyword (e.g.
+       ``system:settings:start``) still resolves to plugin ``parts[0]``.
+    2. ``system:{plugin_id}:{lifecycle | entry...}`` → ``parts[1]``, only
+       when ``parts[2]`` is a known lifecycle keyword.
+    3. Otherwise → ``parts[0]`` (covers list actions, including plugin
+       "system" cases like ``system:foo``).
+    """
+    parts = action_id.split(":")
+    if not parts:
+        return None
+    if len(parts) >= 3 and parts[1] == "settings":
+        return parts[0]
+    if (
+        action_id.startswith("system:")
+        and len(parts) >= 3
+        and parts[2] in _SYSTEM_LIFECYCLE_KEYS
+    ):
+        return parts[1]
+    return parts[0]
 
 
 # ======================================================================
@@ -161,6 +190,17 @@ class _SystemActionHandler:
 
         handler = self._DISPATCH.get(action)
         if handler is not None:
+            # Lifecycle actions (start/stop/reload/toggle/profile) must have
+            # exactly three segments — reject malformed ids like
+            # `system:demo:stop:unexpected` so crafted tails cannot smuggle
+            # extra data into a privileged op.
+            if len(parts) != 3:
+                raise ServerDomainError(
+                    code="ACTION_NOT_FOUND",
+                    message=f"Action '{action_id}' not found",
+                    status_code=404,
+                    details={"action_id": action_id},
+                )
             return await handler(self, plugin_id, action_id, value)
 
         # entry:{entry_id}
@@ -250,19 +290,30 @@ class _SystemActionHandler:
                 },
             ) from exc
 
+        reload_error: str | None = None
         try:
             await self._lifecycle.reload_plugin(plugin_id)
         except Exception as exc:
+            reload_error = str(exc) or type(exc).__name__
             logger.warning(
                 "Profile switched but reload failed for plugin {}: {}",
                 plugin_id,
-                str(exc),
+                reload_error,
             )
 
-        return ActionExecuteResponse(
-            success=True,
-            message=f"Profile switched to '{profile_name}'",
-        )
+        # The profile config DID change, so success=True is still correct.
+        # The message must surface the failed reload, though — otherwise the
+        # palette tells the user "Profile switched" while the running plugin
+        # is still on the old profile until the next manual reload.
+        if reload_error is None:
+            message = f"Profile switched to '{profile_name}'"
+        else:
+            message = (
+                f"Profile switched to '{profile_name}', but reload failed "
+                f"({reload_error}). A manual reload is required for the "
+                f"running plugin to pick up the new profile."
+            )
+        return ActionExecuteResponse(success=True, message=message)
 
     # -- Entry toggle --
 
@@ -305,6 +356,10 @@ class _SystemActionHandler:
                         status_code=501,
                         details={"plugin_id": plugin_id, "entry_id": entry_id},
                     )
+            except ServerDomainError:
+                # Preserve intentional domain errors (status/code) instead of
+                # collapsing them into a generic 500 ENTRY_TRIGGER_FAILED.
+                raise
             except Exception as exc:
                 raise ServerDomainError(
                     code="ENTRY_TRIGGER_FAILED",
@@ -337,6 +392,10 @@ class _SystemActionHandler:
                     status_code=501,
                     details={"plugin_id": plugin_id, "entry_id": entry_id},
                 )
+        except ServerDomainError:
+            # Preserve intentional domain errors (status/code) instead of
+            # collapsing them into a generic 500 ENTRY_TOGGLE_FAILED.
+            raise
         except Exception as exc:
             raise ServerDomainError(
                 code="ENTRY_TOGGLE_FAILED",
@@ -402,6 +461,11 @@ class ActionExecutionService:
         self._system_handler = _SystemActionHandler(self._lifecycle)
         self._list_action_handler = _ListActionHandler()
 
+    # Mirror the module-level constant so existing callers / tests that
+    # reach for ``ActionExecutionService._SYSTEM_LIFECYCLE_KEYS`` keep
+    # working. The authoritative source is the module-level one above.
+    _SYSTEM_LIFECYCLE_KEYS = _SYSTEM_LIFECYCLE_KEYS
+
     async def execute(
         self,
         action_id: str,
@@ -409,16 +473,31 @@ class ActionExecutionService:
     ) -> ActionExecuteResponse:
         """Parse *action_id* and dispatch to the correct handler."""
 
-        # system:{plugin_id}:{action}
-        if action_id.startswith("system:"):
+        parts = action_id.split(":")
+
+        # {plugin_id}:settings:{field} — checked first so that a plugin
+        # literally named "system" still routes its settings (e.g.
+        # ``system:settings:enabled``) to the settings handler instead of
+        # being swallowed by the lifecycle prefix below.
+        if len(parts) >= 3 and parts[1] == "settings":
+            field_name = ":".join(parts[2:])
+            return await self._settings_handler.execute(parts[0], field_name, value)
+
+        # system:{plugin_id}:{lifecycle | entry[:...]} — only treat the
+        # ``system:`` prefix as a lifecycle namespace when ``parts[2]`` is a
+        # known lifecycle keyword. Otherwise (e.g. plugin "system" exposing a
+        # list action ``foo`` as ``system:foo``) fall through to the
+        # list-action handler so that namespace doesn't become a privileged
+        # tombstone for any plugin unfortunate enough to pick the same name.
+        if (
+            action_id.startswith("system:")
+            and len(parts) >= 3
+            and parts[2] in _SYSTEM_LIFECYCLE_KEYS
+        ):
             return await self._system_handler.execute(action_id, value)
 
-        # {plugin_id}:settings:{field}
-        parts = action_id.split(":", 2)
-        if len(parts) == 3 and parts[1] == "settings":
-            return await self._settings_handler.execute(parts[0], parts[2], value)
-
-        # {plugin_id}:{action_id} (list_action)
+        # {plugin_id}:{action_id} (list_action) — covers plugin "system"
+        # list actions like ``system:foo`` (len(parts) == 2).
         if len(parts) >= 2:
             return await self._list_action_handler.execute(action_id, value)
 
