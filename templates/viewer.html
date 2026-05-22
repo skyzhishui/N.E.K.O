@@ -330,13 +330,13 @@
 </head>
 
 <body>
-    <div id="chat-container">
+    <div id="chat-container" class="minimized">
         <div id="chat-header">
             <img src="/static/icons/chat_icon.png" alt="对话" style="width: 25px; height: 25px; object-fit: contain; margin-right: 6px; vertical-align: middle; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;">
             <span id="chat-title" data-i18n="chat.viewerTitle">对话 (观看模式)</span>
         </div>
-        <button id="toggle-chat-btn" data-i18n-title="common.minimize" title="最小化"><img
-                src='/static/icons/expand_icon_off.png' alt="最小化" data-i18n-alt="common.minimize"
+        <button id="toggle-chat-btn" data-i18n-title="common.expand" title="展开"><img
+                src='/static/icons/expand_icon_off_ball.png' alt="展开" data-i18n-alt="common.expand"
                 width="32" height="32"
                 style="object-fit: cover; pointer-events: none;"></button>
         <div id="chat-content-wrapper">
@@ -535,7 +535,7 @@
         const toggleChatBtn = document.getElementById('toggle-chat-btn');
         const chatContentWrapper = document.getElementById('chat-content-wrapper');
 
-        let chatMinimized = false;
+        let chatMinimized = true;  // 观看模式默认折叠文本历史栏
 
         toggleChatBtn.addEventListener('click', () => {
             chatMinimized = !chatMinimized;
@@ -809,6 +809,11 @@
                     } else if (response.type === 'background') {
                         // controler 下发的背景切换（黑色 / 透明），竖屏也生效
                         setViewerBackground(response.color);
+                    } else if (response.type === 'reset_x') {
+                        // 复位：X 轴居中（离屏时只改保存值，不让模型回到屏内）
+                        if (typeof window.resetAvatarXCenter === 'function') {
+                            window.resetAvatarXCenter();
+                        }
                     } else if (response.type === 'motion_sequence') {
                         // 剧本驱动的确定性动作序列（controler 下发）
                         if (typeof window.playMotionSequence === 'function') {

@@ -120,7 +120,7 @@ STATE: dict = {
     "screens": ["0"],
     "segments": {"0": []},
     "cursor": 0,
-    "background": "transparent",  # viewer 背景：transparent / black
+    "background": {},  # 按屏背景：{screen: "transparent"/"black"}，缺省即透明
 }
 _advance_lock = asyncio.Lock()
 
@@ -317,14 +317,24 @@ async def reset_cursor():
 
 @app.post("/api/background")
 async def set_background(payload: dict):
-    """切换 viewer 背景（black / transparent），广播到所有屏幕。"""
+    """切换指定屏幕的 viewer 背景（black / transparent）。默认 0 号屏。"""
     color = "black" if str(payload.get("color")) == "black" else "transparent"
-    STATE["background"] = color
+    screen = str(payload.get("screen") or "0")
+    STATE["background"][screen] = color
     name = STATE["lanlan_name"] or await _default_lanlan_name()
     STATE["lanlan_name"] = name
-    # screen=None → 走无序号端点，monitor 广播给所有屏幕
-    await _monitor.send_json(name, None, {"type": "background", "color": color})
-    return {"success": True, "background": color}
+    await _monitor.send_json(name, screen, {"type": "background", "color": color})
+    return {"success": True, "background": color, "screen": screen}
+
+
+@app.post("/api/avatar_recenter")
+async def avatar_recenter(payload: dict):
+    """让指定屏幕的模型 X 轴复位居中（离屏则只改保存值，不让它回到屏内）。"""
+    screen = str(payload.get("screen") or "0")
+    name = STATE["lanlan_name"] or await _default_lanlan_name()
+    STATE["lanlan_name"] = name
+    await _monitor.send_json(name, screen, {"type": "reset_x"})
+    return {"success": True, "screen": screen}
 
 
 async def _resolve_live2d_model_name(lanlan_name: str) -> str:

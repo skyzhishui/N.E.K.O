@@ -156,7 +156,9 @@
         <button id="rebuildBtn">应用屏幕数</button>
         <button id="saveBtn" class="primary">保存剧本</button>
         <button id="resetBtn" class="warn">重置进度</button>
-        <button id="bgBtn" title="切换所有 viewer 屏幕背景（黑/透明）">背景：透明</button>
+        <button id="bgBtn" title="切换所选屏幕背景（黑/透明）">背景：透明</button>
+        <select id="bgScreen" title="选择要操作背景/复位的屏幕"></select>
+        <button id="recenterBtn" title="把所选屏幕模型 X 轴复位居中（离屏则只改保存值）">复位居中</button>
         <span id="status" class="status"></span>
     </header>
 
@@ -192,23 +194,51 @@
     <script>
         const $ = (id) => document.getElementById(id);
         let performing = false;
-        let currentBg = 'transparent';
+        let selectedScreen = '0';
+        let bgState = {};   // {screen: 'black'|'transparent'}
+
+        function curBg() { return bgState[selectedScreen] || 'transparent'; }
 
         function updateBgBtn() {
-            $('bgBtn').textContent = '背景：' + (currentBg === 'black' ? '黑色' : '透明');
+            $('bgBtn').textContent = '背景：' + (curBg() === 'black' ? '黑色' : '透明');
+        }
+
+        // 用当前屏幕数填充屏幕下拉，保留已选屏（无效则回退 0）
+        function rebuildScreenSelect() {
+            const count = parseInt($('screenCount').value, 10) || 1;
+            const sel = $('bgScreen');
+            sel.innerHTML = '';
+            for (let i = 0; i < count; i++) {
+                const opt = document.createElement('option');
+                opt.value = String(i);
+                opt.textContent = '屏 ' + i;
+                sel.appendChild(opt);
+            }
+            if (parseInt(selectedScreen, 10) >= count) selectedScreen = '0';
+            sel.value = selectedScreen;
+            updateBgBtn();
         }
 
         async function setBackground(color) {
             const r = await fetch('/api/background', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ color })
+                body: JSON.stringify({ color, screen: selectedScreen })
             });
             const d = await r.json();
             if (d.success) {
-                currentBg = d.background;
+                bgState[d.screen] = d.background;
                 updateBgBtn();
-                setStatus('背景已切换为 ' + (currentBg === 'black' ? '黑色' : '透明'));
+                setStatus('屏 ' + d.screen + ' 背景已切换为 ' + (d.background === 'black' ? '黑色' : '透明'));
             }
+        }
+
+        async function recenter() {
+            const r = await fetch('/api/avatar_recenter', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ screen: selectedScreen })
+            });
+            const d = await r.json();
+            if (d.success) setStatus('屏 ' + d.screen + ' 模型 X 轴已复位居中');
         }
 
         function setStatus(msg) {
@@ -359,20 +389,24 @@
             buildScreens(parseInt($('screenCount').value, 10), st.segments);
             $('cursorBadge').textContent = st.cursor || 0;
             refreshNowPlaying(st.cursor || 0);
-            currentBg = st.background || 'transparent';
-            updateBgBtn();
+            bgState = (st.background && typeof st.background === 'object') ? st.background : {};
+            selectedScreen = '0';
+            rebuildScreenSelect();
             loadMotionHints();
         }
 
         $('rebuildBtn').onclick = () => {
             const { segments } = parseScreens();
             buildScreens(parseInt($('screenCount').value, 10), segments);
+            rebuildScreenSelect();
         };
         $('saveBtn').onclick = saveScript;
         $('resetBtn').onclick = resetCursor;
         $('nextBtn').onclick = advance;
         $('perfBtn').onclick = () => setPerforming(!performing);
-        $('bgBtn').onclick = () => setBackground(currentBg === 'black' ? 'transparent' : 'black');
+        $('bgBtn').onclick = () => setBackground(curBg() === 'black' ? 'transparent' : 'black');
+        $('bgScreen').onchange = (e) => { selectedScreen = e.target.value; updateBgBtn(); };
+        $('recenterBtn').onclick = recenter;
 
         // 演出模式下，回车推进（避免编辑时误触：仅在 performing 且焦点不在输入框时）
         document.addEventListener('keydown', (e) => {

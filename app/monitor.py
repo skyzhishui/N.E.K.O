@@ -262,9 +262,9 @@ def _client_count() -> int:
 
 current_subtitle = ""
 should_clear_next = False
-# 最近一次 controler 下发的背景设置（黑/透明），新连接的 viewer 连上即补发，
-# 保证后加入的屏幕也同步当前背景。
-last_background = None
+# 最近一次 controler 下发的背景设置（黑/透明），按屏幕缓存，新连接的 viewer 连上即补发，
+# 保证后加入的屏幕也同步当前背景。key 为 screen（None 表示广播全屏的兜底）。
+last_background_by_screen: dict = {}
 
 def is_japanese(text):
     import re
@@ -372,9 +372,8 @@ async def _run_sync(websocket: WebSocket, lanlan_name: str, screen):
                     should_clear_next = True
 
                 elif msg_type == "background":
-                    # 记住当前背景，供后续连接的 viewer 补发
-                    global last_background
-                    last_background = data
+                    # 按屏记住当前背景，供后续连接的 viewer 补发
+                    last_background_by_screen[screen] = data
 
                 if msg_type != "heartbeat":
                     await broadcast_message(data, screen)
@@ -431,10 +430,13 @@ async def _run_viewer_client(websocket: WebSocket, lanlan_name: str, screen: str
     _register_client(websocket, screen)
     print(f"✅ [CLIENT] 查看客户端已连接: {websocket.client} (screen={screen}), 当前总数: {_client_count()}")
 
-    # 补发当前背景，让后加入的屏幕也同步
-    if last_background is not None:
+    # 补发当前背景，让后加入的屏幕也同步（优先该屏专属，回退到广播全屏的兜底）
+    bg = last_background_by_screen.get(screen)
+    if bg is None:
+        bg = last_background_by_screen.get(None)
+    if bg is not None:
         try:
-            await websocket.send_json(last_background)
+            await websocket.send_json(bg)
         except Exception as e:
             print(f"补发背景失败: {e}")
 

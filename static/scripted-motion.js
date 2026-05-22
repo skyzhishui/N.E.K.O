@@ -212,4 +212,30 @@
     };
 
     window.clearMotionSequence = clearSequence;
+
+    // 把模型 X 轴重置为屏幕水平居中。
+    // 规则：若当前在场(可见)则真正移到中间；若已离屏(leave 后 alpha≈0)则不让它回来，
+    // 只静默更新保存的在场 home.x，使下次 enter 落在居中位置。
+    window.resetAvatarXCenter = function () {
+        const model = getModel();
+        if (!model) return;
+        const screenW = getScreenWidth();
+        // 平移不变量：视觉中心相对 model.x 的固定偏移（离屏也成立，与位置无关）
+        let centerOffset = 0;
+        try {
+            const b = model.getBounds();
+            centerOffset = (b.x + b.width / 2) - model.x;
+        } catch (_) {}
+        const centeredX = screenW / 2 - centerOffset;
+
+        const onStage = currentAlpha(model) > 0.01;
+        const prev = window.__scriptedAvatarOnStage;
+        window.__scriptedAvatarOnStage = {
+            x: centeredX,
+            y: prev ? prev.y : model.y,
+            alpha: prev ? prev.alpha : (onStage ? currentAlpha(model) : 1),
+        };
+        // 只有在场时才移动实际显示；离屏则只改保存值，不打断"已退场"状态
+        if (onStage) model.x = centeredX;
+    };
 })();
