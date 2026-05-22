@@ -24,7 +24,9 @@ _install_runtime_bindings()
 import mimetypes
 mimetypes.add_type("application/javascript", ".js")
 import asyncio
+import json
 import logging
+import random
 
 import aiohttp
 import uvicorn
@@ -61,6 +63,54 @@ app.mount("/static", StaticFiles(directory=get_resource_path("static")), name="s
 MONITOR_WS = f"ws://127.0.0.1:{MONITOR_SERVER_PORT}"
 MOTION_DELAY_MS = 1500   # 台词开播后 motion 延迟 1.5s
 MOTION_INTERVAL_MS = 6000  # 每个 motion 播放 6s
+RANDOM_INDEX_MAX = 4     # 裸动作组随机 index 上限：0..4（再按组内实际数量裁剪）
+
+# 6 个特殊动作（与前端 scripted-motion.js 的 SPECIAL 一致），不参与随机 index
+SPECIAL_MOTIONS = {
+    "左enter", "右enter", "左leave", "右leave", "lookat左", "lookat右",
+    "enter_left", "enter_right", "leave_left", "leave_right", "lookat_left", "lookat_right",
+}
+
+# 模型 motion 组数量缓存：{model_name: {group: count}}
+_motion_counts_cache: dict[str, dict[str, int]] = {}
+
+
+async def _get_motion_counts(lanlan_name: str) -> dict[str, int]:
+    """读取当前角色模型各 motion 组的动作数量（带缓存），用于裁剪随机 index。"""
+    model_name = await _resolve_live2d_model_name(lanlan_name)
+    if model_name in _motion_counts_cache:
+        return _motion_counts_cache[model_name]
+    counts: dict[str, int] = {}
+    try:
+        model_dir, _ = find_model_directory(model_name)
+        if model_dir and os.path.exists(model_dir):
+            for f in os.listdir(model_dir):
+                if f.endswith('.model3.json'):
+                    with open(os.path.join(model_dir, f), 'r', encoding='utf-8') as fh:
+                        cfg = json.load(fh)
+                    motions = (cfg.get('FileReferences', {}) or {}).get('Motions', {}) or {}
+                    counts = {g: len(items or []) for g, items in motions.items()}
+                    break
+    except Exception as e:
+        logger.warning(f"读取 motion 组数量失败: {e}")
+    _motion_counts_cache[model_name] = counts
+    return counts
+
+
+def _resolve_motion_spec(spec: str, counts: dict[str, int]) -> str:
+    """把裸动作组解析成 group:index（随机 0..min(4, 组内数量-1)）。
+
+    特殊动作、已带 :index 的 spec 原样返回——随机只发生在 controler 这一处，
+    解析后的具体 index 下发给所有 viewer，保证多屏播放同一个动作。
+    """
+    spec = (spec or "").strip()
+    if not spec or spec in SPECIAL_MOTIONS or ':' in spec:
+        return spec
+    count = counts.get(spec)
+    upper = RANDOM_INDEX_MAX if not count else min(RANDOM_INDEX_MAX, count - 1)
+    if upper < 0:
+        return spec
+    return f"{spec}:{random.randint(0, upper)}"
 
 
 # ───────────────────────── 剧本状态 ─────────────────────────
@@ -146,6 +196,11 @@ async def _play_segment(name: str, screen: str, segment: dict):
     line = (segment.get("line") or "").strip()
     motions = segment.get("motions") or []
 
+    # 随机只在这里发生一次：把裸动作组解析成具体 group:index，再下发给所有 viewer，
+    # 保证同一屏的多个 viewer 播放同一个动作（而不是各自随机）。
+    counts = await _get_motion_counts(name)
+    resolved_motions = [_resolve_motion_spec(m, counts) for m in motions]
+
     # 打断该屏幕上一段残留的音频，并显示本段台词
     await _monitor.send_json(name, screen, {"type": "user_activity"})
     if line:
@@ -159,7 +214,7 @@ async def _play_segment(name: str, screen: str, segment: dict):
     async def _send_motion():
         await _monitor.send_json(name, screen, {
             "type": "motion_sequence",
-            "motions": motions,
+            "motions": resolved_motions,
             "delay": MOTION_DELAY_MS,
             "interval": MOTION_INTERVAL_MS,
         })
@@ -174,7 +229,7 @@ async def _play_segment(name: str, screen: str, segment: dict):
         logger.warning(f"[screen={screen}] TTS 流式合成出错: {e}")
 
     # 没有音频（TTS 不可用 / 台词为空）也要让 motion 照常播放
-    if not motion_sent and motions:
+    if not motion_sent and resolved_motions:
         await _send_motion()
 
     # 收尾：标记本段结束
@@ -301,7 +356,6 @@ async def list_motions(model_name: str = ""):
     groups: list[str] = []
     resolved = model_name
     try:
-        import json
         if not resolved:
             resolved = await _resolve_live2d_model_name(STATE.get("lanlan_name") or "")
         model_dir, _ = find_model_directory(resolved)
@@ -324,4 +378,4 @@ async def _shutdown():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=CONTROLER_SERVER_PORT, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=CONTROLER_SERVER_PORT, reload=False)

@@ -14,6 +14,8 @@
     const FORCE_PRIORITY = 3; // pixi-live2d-display MotionPriority.FORCE
     // 朝向屏幕最侧面的头部角度（ParamAngle 单位，约 ±30）；左为负、右为正。
     const LOOKAT_ANGLE = 28;
+    // enter/leave 进出场补间时长：固定 0.5s，不跟随 6s 的 slot 时长。
+    const ENTER_LEAVE_MS = 500;
 
     let sequenceTimers = [];
     let activeTween = null;
@@ -129,7 +131,7 @@
             tweenTransform(model,
                 { x: model.x, alpha: currentAlpha(model) },
                 { x: targetX, alpha: 0 },
-                duration);
+                ENTER_LEAVE_MS);
         } else if (def.kind === 'enter') {
             const home = getOnStage(model); // = 上次 leave 前的快照（或初始在场态）
             const startX = def.side === 'left' ? home.x - screenW : home.x + screenW;
@@ -139,7 +141,7 @@
             tweenTransform(model,
                 { x: startX, alpha: 0 },
                 { x: home.x, alpha: home.alpha },
-                duration);
+                ENTER_LEAVE_MS);
         } else if (def.kind === 'lookat') {
             // y 轴中点、x 轴最侧面：头部转到最侧面、视线水平。
             // 通过 _scriptedLookAt 覆盖 _updateRandomLookAt（mouseTracking 关时生效）。

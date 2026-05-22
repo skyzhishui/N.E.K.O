@@ -1286,7 +1286,8 @@ Live2DManager.prototype.setupIdleMotionLoop = function(model) {
                 console.warn('[Live2D] motionFinish 后清理 motion 参数失败:', e);
             }
         }
-        const randomDelay = 1000 + Math.random() * 2000;
+        // 观看模式用固定延迟，避免各 viewer idle 重启时刻随机漂移
+        const randomDelay = (window.isViewerMode === true) ? 1000 : (1000 + Math.random() * 2000);
         scheduleIdleMotion(randomDelay);
     };
     model.internalModel.events.on('motionFinish', this._idleMotionFinishHandler);
@@ -1311,6 +1312,8 @@ Live2DManager.prototype._playIdleMotion = async function(motionManager) {
     const getRandomizedIndexes = (length) => {
         const indexes = [];
         for (let i = 0; i < length; i++) indexes.push(i);
+        // 剧场/观看模式：idle 固定从 index 0 起（不打乱），保证多 viewer 之间一致
+        if (window.isViewerMode === true) return indexes;
         for (let i = indexes.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [indexes[i], indexes[j]] = [indexes[j], indexes[i]];
@@ -1421,7 +1424,10 @@ Live2DManager.prototype._playIdleMotion = async function(motionManager) {
 
     if (!isCurrentIdleRequest()) return;
     try {
-        const started = await motionManager.startRandomMotion('Idle');
+        // 观看模式固定 Idle[0]，否则随机，保证多 viewer 对齐
+        const started = (window.isViewerMode === true)
+            ? await motionManager.startMotion('Idle', 0)
+            : await motionManager.startRandomMotion('Idle');
         if (!isCurrentIdleRequest()) return;
         if (started === false) {
             this._clearActiveMotionParamIds();
