@@ -191,8 +191,17 @@
         clearScriptedLookAt();
     }
 
+    // 单个动作占用的时长：enter/leave 只用过渡时长(0.5s)，播完立刻接下一个；
+    // 普通动作组和 lookat 仍占满 slot(默认 6s)。
+    function durationOf(spec, slot) {
+        const sp = SPECIAL[(spec || '').trim()];
+        if (sp && (sp.kind === 'enter' || sp.kind === 'leave')) return ENTER_LEAVE_MS;
+        return slot;
+    }
+
     /**
-     * 播放一个动作序列：delay 后播放第一个，之后每 interval 播下一个。
+     * 播放一个动作序列：delay 后播第一个，之后每个动作按自己的时长依次衔接
+     * （enter/leave 0.5s 播完即接下一个；普通动作/lookat 占满 slot）。
      * 新序列会取消上一个未完成的序列。
      */
     window.playMotionSequence = function (motions, delay, interval) {
@@ -202,12 +211,14 @@
         const startDelay = (typeof delay === 'number' && delay >= 0) ? delay : 1500;
         const slot = (typeof interval === 'number' && interval > 0) ? interval : 6000;
 
-        motions.forEach((spec, i) => {
-            const at = startDelay + i * slot;
+        let at = startDelay;
+        motions.forEach((spec) => {
+            const dur = durationOf(spec, slot);
             const timer = setTimeout(() => {
-                window.playScriptedMotion(spec, slot);
+                window.playScriptedMotion(spec, dur);
             }, at);
             sequenceTimers.push(timer);
+            at += dur;  // 下一个动作紧接当前动作时长之后
         });
     };
 
