@@ -251,6 +251,11 @@ Live2DManager.prototype._performSnapAnimation = function (model, snapInfo) {
  * @returns {Promise<boolean>} 是否执行了吸附
  */
 Live2DManager.prototype._checkAndPerformSnap = async function (model, options = {}) {
+    // 观看/剧场模式：完全禁用出界吸附/回弹。否则 leave/enter/recenter 把模型移到
+    // 屏外或非边缘位置时会被强行矫正回来，破坏剧场编排。这是所有吸附路径的唯一入口。
+    if (window.isViewerMode === true) {
+        return false;
+    }
     if (!this._isModelReadyForInteraction && !options.allowWhenNotReady) {
         return false;
     }

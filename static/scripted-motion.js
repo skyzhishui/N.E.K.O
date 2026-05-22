@@ -220,13 +220,12 @@
         const model = getModel();
         if (!model) return;
         const screenW = getScreenWidth();
-        // 平移不变量：视觉中心相对 model.x 的固定偏移（离屏也成立，与位置无关）
-        let centerOffset = 0;
-        try {
-            const b = model.getBounds();
-            centerOffset = (b.x + b.width / 2) - model.x;
-        } catch (_) {}
-        const centeredX = screenW / 2 - centerOffset;
+        // 用模型几何算居中：视觉中心 = model.x + (0.5 - anchor.x) * width。
+        // width 取自局部包围盒(getLocalBounds)，与当前位置无关，离屏(getBounds 全局
+        // 包围盒可能失真)也可靠。令视觉中心 = screenW/2 解出 model.x。
+        const anchorX = (model.anchor && typeof model.anchor.x === 'number') ? model.anchor.x : 0;
+        const width = (typeof model.width === 'number' && model.width > 0) ? model.width : 0;
+        const centeredX = screenW / 2 - (0.5 - anchorX) * width;
 
         const onStage = currentAlpha(model) > 0.01;
         const prev = window.__scriptedAvatarOnStage;
