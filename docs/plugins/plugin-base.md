@@ -241,10 +241,10 @@ content = cache_file.read_text()
 
 ```python
 # Read recent events
-recent_events = self.bus.events.get(event_type="note_created", limit=20)
+recent_events = self.bus.events.get(filter={"type": "note_created"}, max_count=20)
 
 # Read recent messages
-recent_messages = self.bus.messages.get(limit=20)
+recent_messages = self.bus.messages.get(max_count=20)
 
 # Read memory records from a bucket
 memory_records = self.bus.memory.get(bucket_id="default", limit=20)
