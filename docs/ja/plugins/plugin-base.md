@@ -68,13 +68,13 @@ timeout = await self.config.get_int("my_settings.timeout", default=30)
 enabled = await self.config.get_bool("my_settings.enabled", default=True)
 ```
 
-**実行時に設定を変更する** こともできます。たとえば UI でユーザーが設定を変えた場合です。
+**実行時に設定更新をリクエストする** こともできます。たとえばエントリがユーザーの選択を保存する場合です。
 
 ```python
-await self.config.set("my_settings.timeout", 60)
+await self.ctx.update_own_config({"my_settings": {"timeout": 60}})
 ```
 
-`@lifecycle(id="config_change")` フックを定義していれば、変更後に自動的に呼ばれます。
+これは現在サポートされている host の更新経路を使います。変更が適用されたあと、`@lifecycle(id="config_change")` フックを定義していれば自動的に呼ばれます。
 
 ---
 

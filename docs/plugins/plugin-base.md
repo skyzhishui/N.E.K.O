@@ -68,13 +68,13 @@ timeout = await self.config.get_int("my_settings.timeout", default=30)
 enabled = await self.config.get_bool("my_settings.enabled", default=True)
 ```
 
-**Modify config at runtime** (e.g. user changed a setting in the UI):
+**Request a config update at runtime** (e.g. an entry saves a user choice):
 
 ```python
-await self.config.set("my_settings.timeout", 60)
+await self.ctx.update_own_config({"my_settings": {"timeout": 60}})
 ```
 
-If you've defined a `@lifecycle(id="config_change")` hook, it will be triggered automatically after the change.
+This uses the supported host update path. If you've defined a `@lifecycle(id="config_change")` hook, it will be triggered automatically after the change is applied.
 
 ---
 

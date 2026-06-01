@@ -68,13 +68,13 @@ timeout = await self.config.get_int("my_settings.timeout", default=30)
 enabled = await self.config.get_bool("my_settings.enabled", default=True)
 ```
 
-**运行时修改配置**（比如用户在 UI 中改了设置）：
+**运行时请求更新配置**（比如某个入口保存用户选择）：
 
 ```python
-await self.config.set("my_settings.timeout", 60)
+await self.ctx.update_own_config({"my_settings": {"timeout": 60}})
 ```
 
-修改后如果你定义了 `@lifecycle(id="config_change")` 钩子，它会被自动触发。
+这会走当前支持的 host 更新路径。修改应用后，如果你定义了 `@lifecycle(id="config_change")` 钩子，它会被自动触发。
 
 ---
 
