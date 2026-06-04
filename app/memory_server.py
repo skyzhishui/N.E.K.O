@@ -3395,6 +3395,10 @@ async def _run_backup_compress(lanlan_name: str, snapshot: list, detailed: bool)
         if result is None:
             attempts = await _record_compress_backup_failure(lanlan_name, snapshot)
             logger.info(f"[CompressBackup] {lanlan_name} 后台压缩失败，退避计数 → {attempts}")
+            # best-effort 也没压成 → 实在不行才丢：若历史仍超硬上限，裁剪最旧未压缩
+            # 原文兜底（锁内串行化写）。暂时性失败时后台会成功、走不到这里。
+            async with _get_settle_lock(lanlan_name):
+                await recent_history_manager.enforce_hard_cap(lanlan_name)
             return
         # 2) 合并写回（锁内，快）。merge_backup_memo 用 fingerprint 对齐，积压已被
         #    主路径压掉 / 被清空就返回 'moot' 丢弃（白做）。
@@ -3450,6 +3454,10 @@ async def _on_compress_done(lanlan_name: str, snapshot: list, ok: bool, detailed
                 f"[CompressBackup] {lanlan_name} 失败退避 dead-letter"
                 f"（连续失败 {fail_attempts} 次且输入未变），跳过"
             )
+            # dead-letter：后台已救不回 → 此时才裁剪兜底（实在不行才丢）。不 acquire
+            # settle lock：本回调可能已在 /renew·/settle 的锁内被调（重入会死锁）；
+            # enforce_hard_cap 是 best-effort 写。
+            await recent_history_manager.enforce_hard_cap(lanlan_name)
             return
         # 输入变了 → 旧计数过期，复位放行
         state['compress_backup_fail_attempts'] = 0

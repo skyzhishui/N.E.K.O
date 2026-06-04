@@ -113,12 +113,14 @@ async def test_on_compress_done_deadletter_skips_spawn():
     }
 
     fake_mgr = MagicMock()
+    fake_mgr.enforce_hard_cap = AsyncMock()
     with patch.object(memory_server, "recent_history_manager", fake_mgr), \
          patch.object(memory_server, "_asave_maint_state", AsyncMock()):
         await memory_server._on_compress_done(name, snapshot, ok=False, detailed=False)
 
-    # 连续失败 ≥ N 且输入未变 → dead-letter，不再起
+    # 连续失败 ≥ N 且输入未变 → dead-letter，不再起后台；但仍裁剪兜底
     assert name not in memory_server.compress_backup_tasks
+    fake_mgr.enforce_hard_cap.assert_awaited_once()
     memory_server._maint_state.pop(name, None)
 
 
@@ -165,6 +167,7 @@ async def test_run_backup_compress_failure_bumps_backoff():
 
     fake_mgr = MagicMock()
     fake_mgr.compress_history = AsyncMock(return_value=None)
+    fake_mgr.enforce_hard_cap = AsyncMock()
     with patch.object(memory_server, "recent_history_manager", fake_mgr), \
          patch.object(memory_server, "_asave_maint_state", AsyncMock()):
         await memory_server._run_backup_compress(name, snapshot, False)
@@ -172,6 +175,7 @@ async def test_run_backup_compress_failure_bumps_backoff():
     state = memory_server._maint_state[name]
     assert state["compress_backup_fail_attempts"] == 1
     assert state["compress_backup_fail_fp"] == build_review_fingerprint(snapshot)
+    fake_mgr.enforce_hard_cap.assert_awaited_once()  # 后台也压不成 → 裁剪兜底
     memory_server._maint_state.pop(name, None)
 
 

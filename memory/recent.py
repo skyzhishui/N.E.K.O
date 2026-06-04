@@ -319,9 +319,12 @@ class CompressedRecentHistoryManager:
                     logger.warning(
                         f"[RecentHistory] {lanlan_name} 摘要失败，跳过本轮压缩以保留原始历史"
                     )
-                    # 持续失败兜底：保留完整历史前，若总量超硬上限则丢弃最旧未压缩原文。
-                    await self._enforce_hard_cap(lanlan_name)
                     # best-effort：通知上层起一个受保护的后台压缩任务尽力压（主路径失败）。
+                    # 硬上限裁剪**不在这里**做——否则"历史超 cap 后任何一次暂时性失败"
+                    # 都会立刻丢最旧原文，而后台压缩用的是裁剪前 snapshot → 合并失配
+                    # moot → 那批对话没被摘要就永久丢了。改由后台 best-effort 也压不成
+                    # 后再裁剪（memory_server._run_backup_compress / dead-letter 分支），
+                    # 让暂时性失败有机会被后台压成摘要保留。
                     await self._notify_compress_done(on_compress_done, lanlan_name, snapshot, False, detailed)
                 else:
                     compressed = [compressed_result[0]]
@@ -673,11 +676,11 @@ class CompressedRecentHistoryManager:
         except Exception as e:
             logger.debug(f"[RecentHistory] {lanlan_name} on_compress_done({ok}) 回调异常: {e}")
 
-    async def _enforce_hard_cap(self, lanlan_name):
+    async def enforce_hard_cap(self, lanlan_name):
         """最终兜底：历史 token 超 RECENT_HARD_CAP_TOKENS 时丢弃最旧的未压缩对话
         原文，保留首条备忘录（若有）+ 最新若干条（至少 max_history_length 条），
-        直到 ≤ 上限。只在压缩持续失败、历史无限膨胀时触发（上限设很大，平时
-        不触发），保证 prompt 有界。"""
+        直到 ≤ 上限。只在 best-effort 后台压缩也压不成、历史仍无限膨胀时由
+        memory_server 调用（上限设很大，平时不触发），保证 prompt 有界。"""
         history = self.user_histories.get(lanlan_name, [])
         if not history:
             return
@@ -728,6 +731,24 @@ class CompressedRecentHistoryManager:
                 f"丢弃最旧 {dropped} 条未压缩原文以保证有界"
             )
             self.user_histories[lanlan_name] = new_history
+            # 自包含落盘：本方法现在由后台 task / 回调调用（update_history 之外），
+            # 不能再依赖 update_history 的后续落盘。
+            try:
+                assert_cloudsave_writable(
+                    self._config_manager, operation="save",
+                    target=f"memory/{lanlan_name}/recent.json",
+                )
+                file_path = self._ensure_path_for_character(lanlan_name)
+                await asyncio.to_thread(os.makedirs, os.path.dirname(file_path), exist_ok=True)
+                await atomic_write_json_async(
+                    file_path,
+                    await asyncio.to_thread(messages_to_dict, new_history),
+                    indent=2, ensure_ascii=False,
+                )
+            except MaintenanceModeError:
+                raise
+            except Exception as e:
+                logger.error(f"[RecentHistory] {lanlan_name} 硬上限裁剪落盘失败: {e}", exc_info=True)
 
     async def merge_backup_memo(self, lanlan_name, snapshot, memo):
         """后台压缩成功后，把 memo 合并回当前 history（快照对齐）。

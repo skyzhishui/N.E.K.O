@@ -215,7 +215,7 @@ def test_enforce_hard_cap_drops_oldest_keeps_memo_and_recent(tmp_path, monkeypat
     body = [HumanMessage(content=f"original message {i} with some length") for i in range(12)]
     mgr.user_histories[name] = [memo] + body
 
-    _run(mgr._enforce_hard_cap(name))
+    _run(mgr.enforce_hard_cap(name))
 
     kept = mgr.user_histories[name]
     assert kept[0] is memo  # 备忘录（已压缩长期记忆）保留
@@ -228,7 +228,7 @@ def test_enforce_hard_cap_noop_when_under_budget(tmp_path):
     mgr, name = _make_manager(tmp_path)
     history = [SystemMessage(content="memo")] + [HumanMessage(content=f"m{i}") for i in range(8)]
     mgr.user_histories[name] = list(history)
-    _run(mgr._enforce_hard_cap(name))
+    _run(mgr.enforce_hard_cap(name))
     assert mgr.user_histories[name] == history  # 未超大上限，不动
 
 
