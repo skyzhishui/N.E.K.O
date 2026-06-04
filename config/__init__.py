@@ -1075,6 +1075,22 @@ RECENT_PER_MESSAGE_MAX_TOKENS = 500
 - 上游：用户/AI 的原始对话文本，正常一轮 30-500 token，长贴可能数 KB。
 - 截断策略：保留头尾各 250 token，中段用 "…[省略中段]…" 替换。"""
 
+RECENT_COMPRESS_INPUT_BUDGET_TOKENS = 8000
+"""后台 best-effort 压缩的单段输入 token 预算（分段阈值）。
+- 用途：待压积压渲染成文本后若超过此值，compress_history 走分段
+  map-reduce——切成每段 ≤ 此值的小段分别压成中间摘要，再 reduce 成最终
+  备忘录，减小单次 LLM 输入、避免输入过大导致超时。未超此值的正常压缩
+  走原一次性路径，行为不变。
+- 上游：积压对话渲染文本的 token 数。"""
+
+RECENT_HARD_CAP_TOKENS = 60000
+"""recent 历史的硬上限（最终兜底，平时不触发）。
+- 用途：压缩持续失败（如持续 429，best-effort 后台也救不回）导致历史
+  一直压不掉、无限膨胀时，update_history 保留完整历史前若总 token 超过
+  此值，丢弃最旧的未压缩对话原文，保留近期若干条 + 备忘录，保证 prompt
+  有界。设得很大，只作最后防线。
+- 上游：未被压缩而累积的 recent 历史 token 数。"""
+
 # ---- Memory: reflection ----
 REFLECTION_TEXT_MAX_TOKENS = 150
 """单条 reflection 文本的 soft cap。
@@ -2022,6 +2038,8 @@ __all__ = [
     'RECENT_COMPRESS_THRESHOLD_ITEMS',
     'RECENT_SUMMARY_MAX_TOKENS',
     'RECENT_PER_MESSAGE_MAX_TOKENS',
+    'RECENT_COMPRESS_INPUT_BUDGET_TOKENS',
+    'RECENT_HARD_CAP_TOKENS',
     'REFLECTION_TEXT_MAX_TOKENS',
     'REFLECTION_SURFACE_TOP_K',
     'REFLECTION_SYNTHESIS_FACTS_MAX',
