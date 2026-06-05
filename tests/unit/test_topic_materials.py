@@ -1,6 +1,7 @@
 import pytest
 
 from main_logic.topic_materials import (
+    _default_fetchers,
     build_topic_materials,
     enrich_topic_materials_online,
 )
@@ -141,3 +142,35 @@ async def test_enrich_topic_materials_online_drops_unrelated_online_titles():
     hint = enriched[0]["material_hint"]
     assert "吉利银河混动纯电怎么选" in hint["summary"]
     assert "全球最神秘超市" not in hint["summary"]
+
+
+@pytest.mark.asyncio
+async def test_default_topic_fetchers_keep_chinese_search_local_and_fallback_inside_topic_layer(monkeypatch):
+    calls = []
+
+    async def fake_baidu(keyword, limit):
+        calls.append(("baidu", keyword, limit))
+        return {"success": False, "error": "baidu unavailable", "results": []}
+
+    async def fake_google(keyword, limit):
+        calls.append(("google", keyword, limit))
+        return {
+            "success": True,
+            "results": [
+                {"title": "脑机接口大众款最新进展", "url": "https://example.test/bci"}
+            ],
+        }
+
+    monkeypatch.setattr("utils.web_scraper.search_baidu", fake_baidu)
+    monkeypatch.setattr("utils.web_scraper.search_google", fake_google)
+
+    fetchers = await _default_fetchers("zh-CN")
+    result = await fetchers["news"]("脑机接口大众款", 2)
+
+    assert calls == [
+        ("baidu", "脑机接口大众款", 2),
+        ("google", "脑机接口大众款", 2),
+    ]
+    assert result["success"] is True
+    assert result["region"] == "china"
+    assert result["search"]["results"][0]["title"] == "脑机接口大众款最新进展"

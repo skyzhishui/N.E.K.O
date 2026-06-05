@@ -54,6 +54,15 @@ from utils.activity_config import get_activity_preferences
 
 logger = logging.getLogger(__name__)
 
+
+def _topic_pool_language() -> str:
+    try:
+        from utils.language_utils import get_global_language, normalize_language_code
+        return normalize_language_code(get_global_language(), format='short') or 'en'
+    except Exception:
+        return 'en'
+
+
 # Conversation buffers: small enough to keep prompt sizes tight, large
 # enough to give the emotion-tier LLM real recent context.
 _CONV_BUFFER_MAXLEN = 12
@@ -347,7 +356,7 @@ class UserActivityTracker:
             self._user_msg_buffer.append((ts, cleaned))
             try:
                 from main_logic.topic_pipeline import get_topic_hook_pool
-                get_topic_hook_pool().note_user_message(self.lanlan_name, cleaned, lang='zh')
+                get_topic_hook_pool().note_user_message(self.lanlan_name, cleaned, lang=_topic_pool_language())
             except Exception:
                 logger.debug('[%s] topic pool user-message note failed', self.lanlan_name, exc_info=True)
 
@@ -371,7 +380,7 @@ class UserActivityTracker:
             self._ai_msg_buffer.append((ts, cleaned))
             try:
                 from main_logic.topic_pipeline import get_topic_hook_pool
-                get_topic_hook_pool().note_ai_message(self.lanlan_name, cleaned, lang='zh')
+                get_topic_hook_pool().note_ai_message(self.lanlan_name, cleaned, lang=_topic_pool_language())
             except Exception:
                 logger.debug('[%s] topic pool ai-message note failed', self.lanlan_name, exc_info=True)
             # AI also opens threads (promises, abandoned mid-sentences) →

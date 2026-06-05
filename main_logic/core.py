@@ -6732,16 +6732,19 @@ class LLMSessionManager:
         next-turn path. Only the gate/single-flight state is cleared."""
         self._voice_playback_active = False
         self._voice_playback_started_ts = 0.0
+        proactive_manager = getattr(self, "proactive_manager", None)
+        if proactive_manager is None:
+            return
         try:
-            leftover = self.proactive_manager.drain_pending()
+            leftover = proactive_manager.drain_pending()
             for cb in leftover:
                 # Hand back to the persistent queue so the reconnect path
                 # (websocket_router) / next trigger redelivers rather than
                 # losing it.
                 self.enqueue_agent_callback(cb)
-            self.proactive_manager.reset_gate()
+            proactive_manager.reset_gate()
         except Exception:
-            logger.exception("[%s] proactive_manager reset/drain failed", self.lanlan_name)
+            logger.exception("[%s] proactive_manager reset/drain failed", getattr(self, "lanlan_name", "unknown"))
 
     def enqueue_agent_callback(self, callback: dict) -> None:
         """Enqueue a structured agent task callback for LLM injection.

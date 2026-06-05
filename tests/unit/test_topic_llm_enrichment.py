@@ -137,6 +137,45 @@ async def test_call_topic_candidates_skips_low_collection_score(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("lang", "marker"),
+    [
+        ("ja", "ユーザーの言語で"),
+        ("ko", "사용자 언어로"),
+        ("es", "en el idioma del usuario"),
+        ("pt", "no idioma do usuario"),
+        ("ru", "на языке пользователя"),
+        ("zh-TW", "使用繁體中文"),
+    ],
+)
+async def test_call_topic_candidates_uses_localized_prompt_for_supported_languages(
+    monkeypatch,
+    lang,
+    marker,
+):
+    from main_logic.activity import llm_enrichment
+
+    captured = {}
+
+    async def fake_invoke(prompt, *, timeout, label):
+        captured["prompt"] = prompt
+        return '{"topics":[]}'
+
+    monkeypatch.setattr(llm_enrichment, "_invoke_emotion_tier", fake_invoke)
+
+    topics = await llm_enrichment.call_topic_candidates(
+        user_msgs=[(1.0, "I mentioned wanting a new phone.")],
+        ai_msgs=[],
+        lang=lang,
+        global_signals="collection: enough evidence",
+    )
+
+    assert topics == []
+    assert marker in captured["prompt"]
+    assert "Output strict JSON" not in captured["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_invoke_emotion_tier_uses_project_message_classes(monkeypatch):
     from main_logic.activity import llm_enrichment
     from utils.llm_client import HumanMessage

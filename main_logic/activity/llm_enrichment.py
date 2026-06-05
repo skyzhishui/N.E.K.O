@@ -78,12 +78,18 @@ def _normalize_lang(lang: str) -> str:
     if not lang:
         return 'zh'
     low = lang.lower()
+    if low.startswith('zh-tw') or low.startswith('zh_hant') or low.startswith('zh-hant'):
+        return 'zh-TW'
     if low.startswith('zh'):
         return 'zh'
     if low.startswith('ja'):
         return 'ja'
     if low.startswith('ko'):
         return 'ko'
+    if low.startswith('es'):
+        return 'es'
+    if low.startswith('pt'):
+        return 'pt'
     if low.startswith('ru'):
         return 'ru'
     return 'en'

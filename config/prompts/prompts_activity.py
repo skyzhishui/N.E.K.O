@@ -269,6 +269,50 @@ TOPIC_CANDIDATE_PROMPTS: dict[str, str] = {
 - risk：打扰、冒犯、误解、硬凑的风险，高于 65 不要输出
 
 如果没有值得以后接的话题，输出 {{"topics": []}}。""",
+    "zh-TW": """你是陪伴產品的話題篩選助手。你的任務不是總結最近一句話，而是從「慢收集的全局證據 + 最近對話」裡挑 1-2 個真的值得以後低頻開口的深話題機會。
+
+======以下為慢收集的全局證據======
+{global_signals}
+======以上為慢收集的全局證據======
+
+======以下為最近對話（按時間順序）======
+{conversation}
+======以上為最近對話（按時間順序）======
+
+要求：
+- 所有文字欄位必須使用繁體中文；不要輸出英文話題
+- 不要復述用戶原話，不要暴露「我分析了你的聊天記錄」
+- 只保留和用戶近期興趣、計畫、糾結、情緒、選擇強相關，而且能從全局證據裡看出穩定性的點
+- 不要把兩個只是相鄰出現的名詞硬拼成一個話題；如果關聯不自然，寧可不要輸出
+- 寒暄、語氣詞、很薄的短句、問卷式問題，一律給低優先級或不要輸出
+- 每個話題要像給角色的一張小抄：知道怎麼自然開口，但最終開口仍交給角色生成
+- 重點是關係深度，不是觸發頻率；寧可少，不要硬湊
+- 如果這個話題適合聯網補一點現實細節，給一個簡短 search_query；查詢詞也使用繁體中文，圍繞最穩定的關係點
+
+輸出嚴格 JSON（不帶 markdown 代碼塊）：
+{{"topics": [
+  {{
+    "interest": "整理後的關係話題，不超過30字",
+    "hook": "從什麼角度接住，不超過45字",
+    "opening_intent": "開口風格，不超過35字",
+    "deepening_hint": "用戶接話後的展開方向，不超過40字",
+    "why_now": "為什麼現在值得輕輕接一下，不超過50字",
+    "search_query": "用於聯網補現實細節的查詢詞；不需要聯網就留空",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+評分：
+- collection_score：這批慢收集證據整體是否夠開一個深話題，低於 80 不要輸出
+- readiness：證據是否已經夠穩定，低於 70 不要輸出
+- confidence：這個話題和用戶的強相關程度，低於 55 不要輸出
+- risk：打擾、冒犯、誤解、硬湊的風險，高於 65 不要輸出
+
+如果沒有值得以後接的話題，輸出 {{"topics": []}}。""",
     "en": """You are a topic-screening assistant for a companionship product. Your job is not to summarize the last message, but to choose 1-2 genuinely worthwhile low-frequency topic opportunities from slow global evidence plus the recent conversation.
 
 ======Slow global evidence======
@@ -312,6 +356,226 @@ Scoring:
 - risk: interruption/offense/misread/forced-association risk; omit above 65
 
 If nothing is worth keeping, output {{"topics": []}}.""",
+    "ja": """あなたはコンパニオン製品の話題選別アシスタントです。直近の一言を要約するのではなく、「ゆっくり集めた全体証拠 + 最近の会話」から、あとで低頻度で自然に切り出す価値がある深めの話題を1〜2個だけ選びます。
+
+======ゆっくり集めた全体証拠======
+{global_signals}
+======全体証拠ここまで======
+
+======最近の会話（時系列）======
+{conversation}
+======最近の会話ここまで======
+
+ルール：
+- すべての文字フィールドはユーザーの言語で、日本語ユーザーなら自然な日本語で書くこと
+- ユーザーの原文をそのまま繰り返さない。「チャット履歴を分析した」と明かさない
+- 最近の興味、予定、迷い、感情、選択に強く結びつき、全体証拠から安定して見える点だけ残す
+- 近くに出ただけの名詞を無理につなげない。関連が自然でなければ出力しない
+- あいさつ、相づち、薄い短文、アンケート風の問いは低優先度または除外
+- 各話題はキャラクター用の短いメモ。最終的な口調はキャラクター側に任せる
+- 大事なのは関係の深さで、頻度ではない。無理に埋めるより少なくする
+- 現実の具体情報が少し役立つ話題なら、短い search_query を入れる。検索語もユーザーの言語で、安定した関係点に絞る
+
+厳密な JSON だけを出力（markdown コードブロックなし）：
+{{"topics": [
+  {{
+    "interest": "整理した関係話題、30字以内",
+    "hook": "自然に拾う角度、45字以内",
+    "opening_intent": "切り出し方、35字以内",
+    "deepening_hint": "ユーザーが乗った後の広げ方、40字以内",
+    "why_now": "今そっと拾う理由、50字以内",
+    "search_query": "現実情報を補う検索語。不要なら空文字",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+スコア：
+- collection_score：深い話題にできるだけの証拠量。80未満は出力しない
+- readiness：証拠の安定度。70未満は出力しない
+- confidence：ユーザーとの関連の強さ。55未満は出力しない
+- risk：邪魔、失礼、誤読、こじつけのリスク。65超は出力しない
+
+価値のある話題がなければ {{"topics": []}} を出力。""",
+    "ko": """당신은 동반자 제품의 화제 선별 도우미입니다. 최근 한마디를 요약하는 것이 아니라, "천천히 모은 전역 근거 + 최근 대화"에서 나중에 낮은 빈도로 자연스럽게 꺼낼 만한 깊은 화제 기회를 1-2개만 고릅니다.
+
+======천천히 모은 전역 근거======
+{global_signals}
+======전역 근거 끝======
+
+======최근 대화（시간순）======
+{conversation}
+======최근 대화 끝======
+
+규칙:
+- 모든 텍스트 필드는 사용자 언어로 작성하세요. 한국어 사용자라면 자연스러운 한국어로 출력하세요
+- 사용자의 원문을 그대로 반복하지 말고, "대화 기록을 분석했다"고 드러내지 마세요
+- 최근 관심사, 계획, 고민, 감정, 선택과 강하게 관련되고 전역 근거에서 안정성이 보이는 점만 남기세요
+- 가까이 나온 명사 두 개를 억지로 붙이지 마세요. 연결이 자연스럽지 않으면 출력하지 마세요
+- 인사, 추임새, 얇은 짧은 답, 설문 같은 질문은 낮은 우선순위로 두거나 제외하세요
+- 각 화제는 캐릭터를 위한 짧은 메모입니다. 최종 말투는 캐릭터 생성 단계에 맡깁니다
+- 중요한 것은 관계의 깊이이지 빈도가 아닙니다. 억지로 채우기보다 적게 출력하세요
+- 현실 정보가 조금 도움이 될 화제라면 짧은 search_query를 넣으세요. 검색어도 사용자 언어로, 안정적인 관계점에 맞추세요
+
+엄격한 JSON만 출력하세요（markdown 코드 블록 금지）:
+{{"topics": [
+  {{
+    "interest": "정리된 관계 화제, 30자 이내",
+    "hook": "자연스럽게 받아낼 각도, 45자 이내",
+    "opening_intent": "말을 여는 방식, 35자 이내",
+    "deepening_hint": "사용자가 반응한 뒤 이어갈 방향, 40자 이내",
+    "why_now": "지금 가볍게 꺼낼 만한 이유, 50자 이내",
+    "search_query": "현실 정보를 보충할 검색어. 필요 없으면 빈 문자열",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+점수:
+- collection_score: 깊은 화제로 삼을 만큼 근거가 충분한가. 80 미만은 출력하지 않음
+- readiness: 근거가 충분히 안정적인가. 70 미만은 출력하지 않음
+- confidence: 사용자와의 관련 강도. 55 미만은 출력하지 않음
+- risk: 방해, 무례함, 오해, 억지 연결 위험. 65 초과는 출력하지 않음
+
+가치 있는 화제가 없으면 {{"topics": []}} 를 출력하세요.""",
+    "es": """Eres un asistente que selecciona temas para un producto de compañía. Tu tarea no es resumir el último mensaje, sino elegir 1-2 oportunidades de conversación profunda que valga la pena abrir con baja frecuencia a partir de evidencia global acumulada lentamente y la conversación reciente.
+
+======Evidencia global acumulada lentamente======
+{global_signals}
+======Fin de la evidencia global======
+
+======Conversación reciente, en orden cronológico======
+{conversation}
+======Fin de la conversación======
+
+Reglas:
+- Todos los campos de texto deben estar en el idioma del usuario; para usuarios en español, escribe en español natural
+- No repitas literalmente lo que dijo el usuario ni reveles que analizaste su historial
+- Conserva solo temas muy ligados a intereses, planes, dilemas, emociones o elecciones recientes, con estabilidad visible en la evidencia global
+- No unas dos sustantivos solo porque aparecieron cerca; si la conexión no es natural, no outputes nada
+- Saludos, muletillas, respuestas muy finas o preguntas tipo encuesta deben tener baja prioridad o omitirse
+- Cada tema es una nota breve para el personaje: cómo abrir naturalmente, no el texto final
+- Importa más la profundidad de la relación que la frecuencia; mejor pocos que forzados
+- Si ayudaría un detalle real de internet, da un search_query breve en el idioma del usuario y centrado en el punto estable
+
+Devuelve JSON estricto, sin bloques markdown:
+{{"topics": [
+  {{
+    "interest": "tema relacional resumido, máximo 30 palabras",
+    "hook": "ángulo para retomarlo naturalmente, máximo 45 palabras",
+    "opening_intent": "estilo de apertura, máximo 35 palabras",
+    "deepening_hint": "cómo seguir si el usuario responde, máximo 40 palabras",
+    "why_now": "por qué vale la pena tocarlo ahora, máximo 50 palabras",
+    "search_query": "consulta para enriquecer con datos reales; vacío si no hace falta",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+Puntuación:
+- collection_score: evidencia suficiente para un tema profundo; omite por debajo de 80
+- readiness: estabilidad de la evidencia; omite por debajo de 70
+- confidence: fuerza de la relación con el usuario; omite por debajo de 55
+- risk: riesgo de molestar, ofender, malinterpretar o forzar; omite por encima de 65
+
+Si no hay nada que valga la pena, devuelve {{"topics": []}}.""",
+    "pt": """Voce e um assistente de selecao de assuntos para um produto de companhia. Sua tarefa nao e resumir a ultima mensagem, mas escolher 1-2 oportunidades de conversa profunda que valem ser puxadas com baixa frequencia, usando evidencias globais coletadas aos poucos e a conversa recente.
+
+======Evidencias globais coletadas aos poucos======
+{global_signals}
+======Fim das evidencias globais======
+
+======Conversa recente, em ordem cronologica======
+{conversation}
+======Fim da conversa======
+
+Regras:
+- Todos os campos de texto devem estar no idioma do usuario; para usuarios em portugues, escreva em portugues natural
+- Nao repita literalmente a fala do usuario nem revele que voce analisou historico de conversa
+- Mantenha apenas temas muito ligados a interesses, planos, dilemas, emocoes ou escolhas recentes, com estabilidade visivel nas evidencias globais
+- Nao junte dois substantivos so porque apareceram perto; se a ligacao nao for natural, nao outpute nada
+- Cumprimentos, muletas, respostas muito finas ou perguntas com cara de questionario devem ter baixa prioridade ou ser omitidos
+- Cada tema e uma nota curta para o personagem: como abrir naturalmente, nao o texto final
+- O foco e profundidade de relacao, nao frequencia; melhor pouco do que forcado
+- Se um detalhe real da internet ajudar, forneca um search_query curto no idioma do usuario e centrado no ponto estavel
+
+Retorne JSON estrito, sem blocos markdown:
+{{"topics": [
+  {{
+    "interest": "tema relacional resumido, maximo 30 palavras",
+    "hook": "angulo para retomar naturalmente, maximo 45 palavras",
+    "opening_intent": "estilo de abertura, maximo 35 palavras",
+    "deepening_hint": "como continuar se o usuario responder, maximo 40 palavras",
+    "why_now": "por que vale tocar nisso agora, maximo 50 palavras",
+    "search_query": "consulta para enriquecer com dados reais; vazio se nao precisar",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+Pontuacao:
+- collection_score: evidencias suficientes para um tema profundo; omita abaixo de 80
+- readiness: estabilidade das evidencias; omita abaixo de 70
+- confidence: forca da relacao com o usuario; omita abaixo de 55
+- risk: risco de incomodar, ofender, interpretar errado ou forcar; omita acima de 65
+
+Se nada valer a pena, retorne {{"topics": []}}.""",
+    "ru": """Ты помощник по отбору тем для companion-продукта. Твоя задача не пересказывать последнее сообщение, а выбрать 1-2 действительно ценные возможности для редкого, естественного начала более глубокого разговора на основе медленно собранных общих сигналов и недавней переписки.
+
+======Медленно собранные общие сигналы======
+{global_signals}
+======Конец общих сигналов======
+
+======Недавняя переписка по порядку======
+{conversation}
+======Конец переписки======
+
+Правила:
+- Все текстовые поля должны быть на языке пользователя; для русскоязычного пользователя пиши естественно на русском
+- Не повторяй слова пользователя дословно и не раскрывай, что анализировал историю чата
+- Оставляй только темы, тесно связанные с недавними интересами, планами, сомнениями, эмоциями или выборами пользователя, если их устойчивость видна в общих сигналах
+- Не склеивай два существительных только потому, что они оказались рядом; если связь неестественная, ничего не выводи
+- Приветствия, междометия, тонкие короткие ответы и вопросы в стиле анкеты пропускай или давай низкий приоритет
+- Каждая тема — короткая заметка для персонажа: как естественно начать, а не финальная реплика
+- Важна глубина отношений, а не частота; лучше меньше, чем натянуто
+- Если теме поможет конкретная информация из сети, дай короткий search_query на языке пользователя, вокруг устойчивой точки интереса
+
+Выводи строго JSON, без markdown-блоков:
+{{"topics": [
+  {{
+    "interest": "краткая тема отношений, до 30 слов",
+    "hook": "угол, с которого естественно подхватить, до 45 слов",
+    "opening_intent": "стиль начала, до 35 слов",
+    "deepening_hint": "как развить, если пользователь ответит, до 40 слов",
+    "why_now": "почему стоит мягко поднять это сейчас, до 50 слов",
+    "search_query": "запрос для фактического обогащения; пусто, если не нужно",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+Оценки:
+- collection_score: достаточно ли общих сигналов для глубокой темы; ниже 80 не выводить
+- readiness: стабильность сигнала; ниже 70 не выводить
+- confidence: сила связи с пользователем; ниже 55 не выводить
+- risk: риск помешать, обидеть, неверно понять или натянуть связь; выше 65 не выводить
+
+Если достойной темы нет, выведи {{"topics": []}}.""",
 }
 
 

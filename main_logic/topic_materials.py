@@ -126,13 +126,17 @@ async def _default_fetchers(lang: str | None = None) -> dict[str, Fetcher]:
     )
 
     async def search(keyword: str, limit: int) -> Mapping[str, Any]:
-        if _is_zh_lang(lang):
-            result = await search_baidu(keyword, limit=limit)
-        else:
-            result = await search_google(keyword, limit=limit)
+        zh_lang = _is_zh_lang(lang)
+        primary = search_baidu if zh_lang else search_google
+        fallback = search_google if zh_lang else search_baidu
+        result = await primary(keyword, limit=limit)
+        if not result.get("success"):
+            fallback_result = await fallback(keyword, limit=limit)
+            if fallback_result.get("success"):
+                result = fallback_result
         return {
             "success": bool(result.get("success")),
-            "region": "china" if _is_zh_lang(lang) else "non-china",
+            "region": "china" if zh_lang else "non-china",
             "search": result,
         }
 
