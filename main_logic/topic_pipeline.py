@@ -333,7 +333,12 @@ class TopicHookPool:
             material
             for material in (_clean_material(item) for item in (raw_materials or []))
             if material is not None and _material_is_ready(material)
-        ][:2]
+        ]
+        cleaned = sorted(
+            cleaned,
+            key=lambda item: int(item.get("priority", 0)),
+            reverse=True,
+        )[:2]
         if cleaned and (self._enable_online_enrichment if enrich_online is None else enrich_online):
             cleaned = await enrich_topic_materials_online(cleaned, lang=topic_lang, max_materials=1)
         if self._seq.get(name, 0) != seen_seq:

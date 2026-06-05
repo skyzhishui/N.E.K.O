@@ -356,6 +356,45 @@ async def test_topic_pool_triggers_ready_hook_after_quiet_window():
 
 
 @pytest.mark.asyncio
+async def test_topic_pool_triggers_highest_priority_material_first():
+    delivered = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": "低优先级话题",
+                "hook": "这个话题先不要浪费触发机会",
+                "priority": 80,
+            },
+            {
+                "interest": "高优先级话题",
+                "hook": "这个才应该先触发",
+                "priority": 96,
+            },
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        delivered.append(material["interest"])
+        return True
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.01,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "我最近认真聊了两个方向，但其中一个明显更适合展开", lang="zh-CN")
+
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.03)
+
+    assert delivered == ["高优先级话题"]
+    assert pool.get_ready_materials("妮可")[0]["interest"] == "高优先级话题"
+
+
+@pytest.mark.asyncio
 async def test_topic_pool_keeps_material_pending_when_delivery_defers():
     first_attempt = asyncio.Event()
     attempts = []
