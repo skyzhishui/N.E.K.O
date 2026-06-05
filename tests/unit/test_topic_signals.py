@@ -1,4 +1,4 @@
-from main_logic.topic_signals import TopicSignalStore
+from main_logic.topic_signals import TopicSignalStore, TopicTurnSignal, _select_turns_for_prompt
 
 
 def test_topic_signal_store_keeps_filler_chat_below_ready_even_after_many_turns():
@@ -41,3 +41,12 @@ def test_topic_signal_store_scores_repeated_theme_higher_than_unrelated_thin_tur
     scattered.note_turn("妮可", actor="user", text="哈哈确实", now=3.0)
 
     assert repeated.readiness_percent("妮可") > scattered.readiness_percent("妮可")
+
+
+def test_select_turns_for_prompt_clamps_negative_max_lines():
+    turns = [
+        TopicTurnSignal(actor="user", text="第一句", timestamp=1.0, lang="zh-CN"),
+        TopicTurnSignal(actor="user", text="第二句", timestamp=2.0, lang="zh-CN"),
+    ]
+
+    assert _select_turns_for_prompt(turns, max_lines=-1) == []

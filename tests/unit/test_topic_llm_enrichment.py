@@ -137,6 +137,39 @@ async def test_call_topic_candidates_skips_low_collection_score(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_call_topic_candidates_keeps_short_cjk_interests(monkeypatch):
+    from main_logic.activity import llm_enrichment
+
+    async def fake_invoke(prompt, *, timeout, label):
+        return """
+        {
+          "topics": [
+            {
+              "interest": "转职",
+              "hook": "接住用户对转职的犹豫",
+              "collection_score": 90,
+              "readiness": 88,
+              "confidence": 84,
+              "risk": 10,
+              "priority": 90
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(llm_enrichment, "_invoke_emotion_tier", fake_invoke)
+
+    topics = await llm_enrichment.call_topic_candidates(
+        user_msgs=[(1.0, "我最近一直在想转职")],
+        ai_msgs=[],
+        lang="zh-CN",
+        global_signals="收集进度: 100%",
+    )
+
+    assert topics and topics[0]["interest"] == "转职"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("lang", "marker"),
     [

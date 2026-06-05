@@ -27,6 +27,49 @@ _LABELS = {
     "en": {"material": "Deep topic hook", "recent": "Recent topic", "memory": "Optional memory hook", "thread": "Open thread"},
 }
 
+_MATERIAL_FIELD_LABELS = {
+    "zh": {
+        "interest": "关系点",
+        "hook": "切入",
+        "opening": "开口方向",
+        "deepening": "接话后",
+        "hint_summary": "联网素材",
+        "online_angle": "联网角度",
+        "online_angle_suffix": "如果用这个 hook，必须自然借一个具体点",
+        "hint_links": "素材标题",
+    },
+    "zh-CN": {
+        "interest": "关系点",
+        "hook": "切入",
+        "opening": "开口方向",
+        "deepening": "接话后",
+        "hint_summary": "联网素材",
+        "online_angle": "联网角度",
+        "online_angle_suffix": "如果用这个 hook，必须自然借一个具体点",
+        "hint_links": "素材标题",
+    },
+    "zh-TW": {
+        "interest": "關係點",
+        "hook": "切入",
+        "opening": "開口方向",
+        "deepening": "接話後",
+        "hint_summary": "聯網素材",
+        "online_angle": "聯網角度",
+        "online_angle_suffix": "如果用這個 hook，必須自然借一個具體點",
+        "hint_links": "素材標題",
+    },
+    "en": {
+        "interest": "Relationship point",
+        "hook": "Entry hook",
+        "opening": "Opening direction",
+        "deepening": "If they respond",
+        "hint_summary": "Online material",
+        "online_angle": "Online angle",
+        "online_angle_suffix": "if you use this hook, borrow one concrete detail naturally",
+        "hint_links": "Source titles",
+    },
+}
+
 def _lang_key(lang: str) -> str:
     raw = (lang or "").strip()
     if raw in _LABELS:
@@ -72,7 +115,8 @@ def _iter_open_threads(open_threads: Iterable[Any] | None) -> list[str]:
     return texts
 
 
-def _iter_topic_materials(topic_materials: Iterable[Mapping[str, Any]] | None) -> list[str]:
+def _iter_topic_materials(topic_materials: Iterable[Mapping[str, Any]] | None, *, lang: str) -> list[str]:
+    field_labels = _MATERIAL_FIELD_LABELS.get(lang, _MATERIAL_FIELD_LABELS["en"])
     texts: list[str] = []
     seen: set[str] = set()
     for material in topic_materials or []:
@@ -97,19 +141,21 @@ def _iter_topic_materials(topic_materials: Iterable[Mapping[str, Any]] | None) -
 
         parts = []
         if interest:
-            parts.append(f"关系点={interest}")
+            parts.append(f"{field_labels['interest']}={interest}")
         if hook:
-            parts.append(f"切入={hook}")
+            parts.append(f"{field_labels['hook']}={hook}")
         if opening:
-            parts.append(f"开口方向={opening}")
+            parts.append(f"{field_labels['opening']}={opening}")
         if deepening:
-            parts.append(f"接话后={deepening}")
+            parts.append(f"{field_labels['deepening']}={deepening}")
         if hint_summary:
-            parts.append(f"联网素材={hint_summary}")
+            parts.append(f"{field_labels['hint_summary']}={hint_summary}")
         if online_angle:
-            parts.append(f"联网角度={online_angle}；如果用这个 hook，必须自然借一个具体点")
+            parts.append(
+                f"{field_labels['online_angle']}={online_angle}；{field_labels['online_angle_suffix']}"
+            )
         if hint_links:
-            parts.append(f"素材标题={'; '.join(hint_links[:2])}")
+            parts.append(f"{field_labels['hint_links']}={'; '.join(hint_links[:2])}")
         text = "；".join(parts)
         if text and text not in seen:
             seen.add(text)
@@ -135,7 +181,7 @@ def build_topic_hook_prompt(
     labels = _LABELS.get(key, _LABELS["en"])
     header = _HEADER_ZH if key.startswith("zh") else _HEADER_EN
 
-    material_texts = _iter_topic_materials(topic_materials)[:max_items]
+    material_texts = _iter_topic_materials(topic_materials, lang=key)[:max_items]
     recent_texts = _iter_open_threads(recent_topics)[:max_items]
     memory_texts = _iter_followup_texts(followup_topics)[:max_items]
     thread_texts = _iter_open_threads(open_threads)[:max_items]

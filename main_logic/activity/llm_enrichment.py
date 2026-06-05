@@ -95,6 +95,16 @@ def _normalize_lang(lang: str) -> str:
     return 'en'
 
 
+def _topic_interest_too_short(interest: str) -> bool:
+    if len(interest) >= 4:
+        return False
+    compact = re.sub(r'\s+', '', interest)
+    cjk_chars = re.findall(r'[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]', compact)
+    if len(cjk_chars) >= 2:
+        return False
+    return True
+
+
 def _format_conversation(
     user_msgs: list[tuple[float, str]],
     ai_msgs: list[tuple[float, str]],
@@ -296,7 +306,7 @@ async def call_topic_candidates(
         if not isinstance(item, dict):
             continue
         interest = str(item.get('interest') or '').strip()
-        if len(interest) < 4:
+        if _topic_interest_too_short(interest):
             continue
         try:
             priority = int(item.get('priority', 80))

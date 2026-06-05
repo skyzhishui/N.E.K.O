@@ -75,6 +75,32 @@ async def test_enrich_topic_materials_online_defaults_to_search_fetcher():
 
 
 @pytest.mark.asyncio
+async def test_enrich_topic_materials_online_respects_explicit_empty_fetchers(monkeypatch):
+    from main_logic import topic_materials
+
+    async def fail_default_fetchers(lang):
+        raise AssertionError("default fetchers should not be used")
+
+    monkeypatch.setattr(topic_materials, "_default_fetchers", fail_default_fetchers)
+
+    materials = [
+        {
+            "interest": "留学",
+            "hook": "接住用户对留学的犹豫",
+            "media_intent": ["news"],
+        }
+    ]
+
+    enriched = await enrich_topic_materials_online(
+        materials,
+        fetchers={},
+        max_materials=1,
+    )
+
+    assert enriched == materials
+
+
+@pytest.mark.asyncio
 async def test_enrich_topic_materials_online_uses_model_search_query_and_marks_online_angle():
     calls = []
 

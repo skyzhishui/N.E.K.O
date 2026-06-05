@@ -168,6 +168,12 @@ def _select_turns_for_prompt(
     *,
     max_lines: int,
 ) -> list[TopicTurnSignal]:
+    try:
+        max_lines = int(max_lines)
+    except (TypeError, ValueError):
+        max_lines = 0
+    if max_lines <= 0:
+        return []
     all_turns = list(turns)
     if len(all_turns) <= max_lines:
         return all_turns

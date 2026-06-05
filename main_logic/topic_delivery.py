@@ -138,5 +138,9 @@ async def trigger_topic_hook_once(
         _remove_callback_from_manager(mgr, callback)
         raise
     if not delivered:
+        # ``trigger_agent_callbacks`` keeps callbacks queued on many retriable
+        # False paths. Topic hooks need stricter accounting: only
+        # TopicHookPool may retry and mark used/quota. Remove this queued copy so
+        # it cannot surface later outside the topic pool's one-shot bookkeeping.
         _remove_callback_from_manager(mgr, callback)
     return delivered

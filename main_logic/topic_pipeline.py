@@ -51,6 +51,28 @@ def _clean_text(value: Any, *, limit: int = _MAX_TEXT_CHARS) -> str:
     return text
 
 
+def _clean_media_intent(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, Iterable) and not isinstance(value, Mapping):
+        raw_items = list(value)
+    else:
+        raw_items = []
+    intents: list[str] = []
+    for item in raw_items:
+        text = _clean_text(item, limit=30).lower()
+        if text and text not in intents:
+            intents.append(text)
+    return (intents or ["news"])[:2]
+
+
+def _clean_timestamp(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return time.time()
+
+
 def _clean_material(material: Mapping[str, Any]) -> dict[str, Any] | None:
     interest = _clean_text(material.get("interest"), limit=90)
     if not interest:
@@ -85,7 +107,7 @@ def _clean_material(material: Mapping[str, Any]) -> dict[str, Any] | None:
         "hook": hook or f"自然接住「{interest}」，不要像总结报告。",
         "opening_intent": opening or "具体、短、像随口一提；不要像问卷。",
         "deepening_hint": deepening or "如果用户接话，再顺着用户反应展开。",
-        "media_intent": list(material.get("media_intent") or ["news"])[:2],
+        "media_intent": _clean_media_intent(material.get("media_intent")),
         "why_now": _clean_text(material.get("why_now"), limit=140),
         "search_query": _clean_text(material.get("search_query"), limit=80),
         "collection_score": max(0, min(100, collection_score)),
@@ -94,7 +116,7 @@ def _clean_material(material: Mapping[str, Any]) -> dict[str, Any] | None:
         "risk": max(0, min(100, risk)),
         "priority": max(0, min(100, priority)),
         "status": "pending",
-        "created_at": float(material.get("created_at") or time.time()),
+        "created_at": _clean_timestamp(material.get("created_at")),
     }
 
 
@@ -346,13 +368,25 @@ class TopicHookPool:
         self._tasks[name] = loop.create_task(self._run_later(name), name=f"topic_pool_{name}")
 
     async def _run_later(self, name: str) -> None:
-        if self._debounce_seconds:
-            await asyncio.sleep(self._debounce_seconds)
-        if name in self._dirty:
-            await self.process_now(name)
-        if name in self._dirty:
-            self._tasks.pop(name, None)
-            self._schedule(name)
+        try:
+            if self._debounce_seconds:
+                await asyncio.sleep(self._debounce_seconds)
+            if name in self._dirty:
+                await self.process_now(name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[%s] topic background processing failed: %s", name, exc)
+        finally:
+            task = self._tasks.get(name)
+            try:
+                current_task = asyncio.current_task()
+            except RuntimeError:
+                current_task = None
+            if task is current_task:
+                self._tasks.pop(name, None)
+            if name in self._dirty:
+                self._schedule(name)
 
     def _cancel_trigger(self, name: str) -> None:
         task = self._trigger_tasks.pop(name, None)
@@ -422,6 +456,20 @@ class TopicHookPool:
             )
             if not triggered:
                 logger.info("[%s] topic material trigger skipped by delivery bridge", name)
+                if self._seq.get(name, 0) == expected_seq and current_material.get("status") == "pending":
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        return
+                    self._trigger_tasks[name] = loop.create_task(
+                        self._run_trigger_after_quiet_window(
+                            name,
+                            deepcopy(dict(current_material)),
+                            lang,
+                            expected_seq=expected_seq,
+                        ),
+                        name=f"topic_trigger_{name}",
+                    )
                 return
             current_material["status"] = "used"
             current_material["used_at"] = time.time()

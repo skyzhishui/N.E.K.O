@@ -70,3 +70,31 @@ def test_build_topic_hook_prompt_renders_topic_materials_with_online_hints():
     assert "白车补漆避坑指南" in prompt
     assert "一句话抛钩子" in prompt
     assert "如果用户接话" in prompt
+
+
+def test_build_topic_hook_prompt_localizes_topic_material_fields_for_english():
+    prompt = build_topic_hook_prompt(
+        lang="en",
+        topic_materials=[
+            {
+                "interest": "switching careers",
+                "hook": "nudge the career-change hesitation",
+                "opening_intent": "one casual sentence",
+                "deepening_hint": "follow the user's reaction",
+                "online_angle": "mention one concrete salary trend naturally",
+                "material_hint": {
+                    "summary": "Found a practical career-change checklist.",
+                    "links": [
+                        {"type": "news", "title": "Career change guide"},
+                    ],
+                },
+            }
+        ],
+    )
+
+    assert "Relationship point=switching careers" in prompt
+    assert "Entry hook=nudge the career-change hesitation" in prompt
+    assert "Online material=Found a practical career-change checklist." in prompt
+    assert "Source titles=news:Career change guide" in prompt
+    assert "关系点=" not in prompt
+    assert "联网素材=" not in prompt

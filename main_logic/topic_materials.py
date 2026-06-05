@@ -281,7 +281,7 @@ async def enrich_topic_materials_online(
     timeout_s: float = 4.0,
 ) -> list[dict[str, Any]]:
     """Enrich top materials with lightweight online hints via existing fetchers."""
-    available_fetchers = dict(fetchers or await _default_fetchers(lang))
+    available_fetchers = dict(await _default_fetchers(lang) if fetchers is None else fetchers)
     enriched = [deepcopy(dict(material)) for material in materials]
 
     for material in enriched[:max_materials]:

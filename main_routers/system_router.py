@@ -1907,6 +1907,14 @@ def _record_proactive_chat(lanlan_name: str, message: str, channel: str = ''):
         pass
 
 
+def _allow_open_threads_for_topic_hooks(activity_snapshot) -> bool:
+    if activity_snapshot is None:
+        return True
+    if getattr(activity_snapshot, 'propensity', None) != 'restricted_screen_only':
+        return True
+    return getattr(activity_snapshot, 'unfinished_thread', None) is not None
+
+
 # ---------- Mini-game 邀请短路状态管理 ----------
 # 入口在 proactive_chat 内部、过完 propensity / skip_probability /
 # restricted_screen_only 几道门之后调 _maybe_deliver_mini_game_invite。命中
@@ -6269,7 +6277,9 @@ async def proactive_chat(request: Request):
             state_section = ''
 
         open_threads_for_topic_hooks = (
-            getattr(display_snap, 'open_threads', None) if display_snap is not None else None
+            getattr(display_snap, 'open_threads', None)
+            if display_snap is not None and _allow_open_threads_for_topic_hooks(activity_snapshot)
+            else None
         )
         if open_threads_for_topic_hooks or _followup_topics:
             try:
