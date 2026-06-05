@@ -1,0 +1,187 @@
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_call_topic_candidates_parses_model_output(monkeypatch):
+    from main_logic.activity import llm_enrichment
+
+    async def fake_invoke(prompt, *, timeout, label):
+        assert label == "topic_candidates"
+        assert "凯迪拉克" in prompt
+        return """```json
+        {
+          "topics": [
+            {
+              "interest": "想买凯迪拉克但预算压力很大",
+              "hook": "接住想买车和现实预算的冲突",
+              "opening_intent": "像朋友随口一提，不像问卷",
+              "deepening_hint": "用户接话后聊目标和现实怎么折中",
+              "priority": 93
+            },
+            {"interest": "你好", "priority": 10}
+          ]
+        }
+        ```"""
+
+    monkeypatch.setattr(llm_enrichment, "_invoke_emotion_tier", fake_invoke)
+
+    topics = await llm_enrichment.call_topic_candidates(
+        user_msgs=[(1.0, "我想买凯迪拉克，但我根本买不起，毕业一年才攒了4600")],
+        ai_msgs=[],
+        lang="zh-CN",
+    )
+
+    assert topics == [
+        {
+            "interest": "想买凯迪拉克但预算压力很大",
+            "hook": "接住想买车和现实预算的冲突",
+            "opening_intent": "像朋友随口一提，不像问卷",
+            "deepening_hint": "用户接话后聊目标和现实怎么折中",
+            "readiness": 93,
+            "collection_score": 93,
+            "confidence": 93,
+            "risk": 20,
+            "why_now": "",
+            "search_query": "",
+            "priority": 93,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_call_topic_candidates_passes_global_signals_and_keeps_online_fields(monkeypatch):
+    from main_logic.activity import llm_enrichment
+
+    captured = {}
+
+    async def fake_invoke(prompt, *, timeout, label):
+        captured["prompt"] = prompt
+        return """
+        {
+          "topics": [
+            {
+              "interest": "用户把买车和生活自由感联系在一起",
+              "hook": "先接住不想被人生流程推着走",
+              "opening_intent": "短一点，像随口想起来",
+              "deepening_hint": "用户接话后再聊自由感和现实成本",
+              "why_now": "多次提到买车、预算和不想被固定流程推着走",
+              "search_query": "年轻人 买车 通勤 养车 成本",
+              "collection_score": 92,
+              "readiness": 91,
+              "confidence": 88,
+              "risk": 18,
+              "priority": 91
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(llm_enrichment, "_invoke_emotion_tier", fake_invoke)
+
+    topics = await llm_enrichment.call_topic_candidates(
+        user_msgs=[(1.0, "刚才又聊到买车")],
+        ai_msgs=[],
+        lang="zh-CN",
+        global_signals="全局信号：用户三次提到买车和自由感",
+    )
+
+    assert "全局信号：用户三次提到买车和自由感" in captured["prompt"]
+    assert topics == [
+        {
+            "interest": "用户把买车和生活自由感联系在一起",
+            "hook": "先接住不想被人生流程推着走",
+            "opening_intent": "短一点，像随口想起来",
+            "deepening_hint": "用户接话后再聊自由感和现实成本",
+            "why_now": "多次提到买车、预算和不想被固定流程推着走",
+            "search_query": "年轻人 买车 通勤 养车 成本",
+            "collection_score": 92,
+            "readiness": 91,
+            "confidence": 88,
+            "risk": 18,
+            "priority": 91,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_call_topic_candidates_skips_low_collection_score(monkeypatch):
+    from main_logic.activity import llm_enrichment
+
+    async def fake_invoke(prompt, *, timeout, label):
+        return """
+        {
+          "topics": [
+            {
+              "interest": "一个还没收集够的薄话题",
+              "hook": "先不要开口",
+              "collection_score": 62,
+              "readiness": 90,
+              "confidence": 90,
+              "risk": 10,
+              "priority": 90
+            }
+          ]
+        }
+        """
+
+    monkeypatch.setattr(llm_enrichment, "_invoke_emotion_tier", fake_invoke)
+
+    topics = await llm_enrichment.call_topic_candidates(
+        user_msgs=[(1.0, "还没聊开")],
+        ai_msgs=[],
+        lang="zh-CN",
+        global_signals="收集进度: 60%",
+    )
+
+    assert topics == []
+
+
+@pytest.mark.asyncio
+async def test_invoke_emotion_tier_uses_project_message_classes(monkeypatch):
+    from main_logic.activity import llm_enrichment
+    from utils.llm_client import HumanMessage
+
+    captured = {}
+
+    class FakeConfigManager:
+        def get_model_api_config(self, name):
+            assert name == "emotion"
+            return {
+                "model": "fake-emotion-model",
+                "api_key": "fake-key",
+                "base_url": "https://example.invalid/v1",
+            }
+
+    class FakeResponse:
+        content = '{"topics":[]}'
+
+    class FakeLLM:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def ainvoke(self, messages):
+            captured["messages"] = messages
+            return FakeResponse()
+
+    def fake_create_chat_llm(*args, **kwargs):
+        return FakeLLM()
+
+    monkeypatch.setattr(
+        "utils.config_manager.get_config_manager",
+        lambda: FakeConfigManager(),
+    )
+    monkeypatch.setattr("utils.llm_client.create_chat_llm", fake_create_chat_llm)
+    monkeypatch.setattr("utils.token_tracker.set_call_type", lambda value: None)
+
+    raw = await llm_enrichment._invoke_emotion_tier(
+        "提炼一个深话题",
+        timeout=1.0,
+        label="topic_candidates",
+    )
+
+    assert raw == '{"topics":[]}'
+    assert isinstance(captured["messages"][0], HumanMessage)
+    assert captured["messages"][0].content == "提炼一个深话题"

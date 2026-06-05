@@ -5642,7 +5642,7 @@ class LLMSessionManager:
         )
         return {"accepted": False, "reason": ack_reason, "interaction_id": interaction_id}
 
-    async def trigger_agent_callbacks(self) -> None:
+    async def trigger_agent_callbacks(self) -> bool:
         """Proactively deliver pending agent task results via LLM rephrase.
 
         Design:
@@ -5663,7 +5663,7 @@ class LLMSessionManager:
             self.lanlan_name, sess_type, self.state.phase.value, len(self.pending_agent_callbacks),
         )
         if not self.pending_agent_callbacks:
-            return
+            return False
         # 与 handle_text_data / handle_response_complete 等输出 handler 对偶：
         # takeover 期间普通 chat LLM 输出会被静音，所以现在派发会被吞掉、callback
         # 内容白丢。把入口卡住，callback 留在队列里等 takeover 释放。
@@ -5672,7 +5672,7 @@ class LLMSessionManager:
                 "[%s] trigger_agent_callbacks deferred: session takeover active, keeping %d callback(s) for next attempt",
                 self.lanlan_name, len(self.pending_agent_callbacks),
             )
-            return
+            return False
 
         # Hard delivery contract: trigger_agent_callbacks ONLY consumes
         # proactive callbacks. Passive ones must remain in the queue and
@@ -5689,7 +5689,7 @@ class LLMSessionManager:
                 "[%s] trigger_agent_callbacks: queue has only passive callbacks (n=%d); deferring to next user turn",
                 self.lanlan_name, len(self.pending_agent_callbacks),
             )
-            return
+            return False
 
         # Voice mode：直接 conversation.item.create(role=user) + response.create，
         # 让 LLM 立即用本角色嗓音主动回应 proactive callback，不等用户开口。
@@ -5715,7 +5715,7 @@ class LLMSessionManager:
                 # gate + inject avoids injecting into a closing old session.
                 voice_sess = self.session
                 if not isinstance(voice_sess, OmniRealtimeClient):
-                    return
+                    return False
                 # Re-filter inside the lock: a concurrent task may have already
                 # injected+pruned these cbs while we waited on the lock.
                 proactive_cbs = [
@@ -5723,7 +5723,7 @@ class LLMSessionManager:
                     if cb.get("delivery_mode") != "passive"
                 ]
                 if not proactive_cbs:
-                    return
+                    return False
                 # Playback-aware gate: ``_voice_playback_active`` is True
                 # between the FRONTEND's voice_play_start and voice_play_end,
                 # i.e. while buffered audio is still AUDIBLY playing — which
@@ -5744,7 +5744,7 @@ class LLMSessionManager:
                         self._voice_playback_active,
                         len(proactive_cbs),
                     )
-                    return
+                    return False
 
                 _lang = normalize_language_code(self.user_language, format='short')
                 instruction = _build_callback_instruction(
@@ -5872,7 +5872,7 @@ class LLMSessionManager:
                         self.lanlan_name, len(voice_snapshot),
                     )
                     self._schedule_proactive_retry(self.proactive_manager.min_gap_s)
-                    return
+                    return False
                 try:
                     await voice_sess.inject_text_and_request_response(
                         instruction, on_rejected=_on_voice_inject_rejected
@@ -5896,7 +5896,7 @@ class LLMSessionManager:
                         "[%s] trigger_agent_callbacks: voice provider does not support manual inject; falling back to hot-swap (n=%d)",
                         self.lanlan_name, len(voice_snapshot),
                     )
-                    return
+                    return False
                 except Exception as exc:
                     # WS error / fatal / response_already_active race — keep cbs
                     # in the queue so the next phase-idle hook retries them.
@@ -5904,7 +5904,7 @@ class LLMSessionManager:
                         "[%s] trigger_agent_callbacks: voice proactive inject failed: %s; keeping cbs for retry",
                         self.lanlan_name, exc,
                     )
-                    return
+                    return False
 
                 # If the server rejected asynchronously DURING the await above
                 # (case a — ``_on_voice_inject_rejected`` already fired while
@@ -5919,7 +5919,7 @@ class LLMSessionManager:
                         "[%s] trigger_agent_callbacks: voice proactive inject rejected during await; keeping %d cb(s) queued for retry",
                         self.lanlan_name, len(voice_snapshot),
                     )
-                    return
+                    return False
 
                 # Inject succeeded. Drop the cbs we delivered from BOTH queues:
                 # ``pending_agent_callbacks`` (text-mode drain + proactive
@@ -5958,7 +5958,7 @@ class LLMSessionManager:
                     "[%s] trigger_agent_callbacks: voice proactive inject sent (n=%d)",
                     self.lanlan_name, len(voice_snapshot),
                 )
-                return
+                return True
 
         _lang = normalize_language_code(self.user_language, format='short')
         # Render via _build_callback_instruction on the proactive subset only.
@@ -5985,7 +5985,7 @@ class LLMSessionManager:
                 "[%s] trigger_agent_callbacks: SM denied claim (phase=%s), re-queuing",
                 self.lanlan_name, self.state.phase.value,
             )
-            return
+            return False
 
         # Drop only the snapshot cbs from the queue once we have the SM
         # claim — keep both pre-existing passive cbs and any callbacks
@@ -6002,9 +6002,10 @@ class LLMSessionManager:
             if id(cb) not in snapshot_ids
         ]
 
+        delivered = False
         try:
             if isinstance(self.session, OmniOfflineClient):
-                await self._deliver_agent_callbacks_text(instruction, callbacks_snapshot)
+                delivered = await self._deliver_agent_callbacks_text(instruction, callbacks_snapshot)
             else:
                 ws = self.websocket
                 if ws and hasattr(ws, 'client_state') and ws.client_state == ws.client_state.CONNECTED:
@@ -6013,7 +6014,7 @@ class LLMSessionManager:
                     except Exception as e:
                         logger.warning("[%s] trigger_agent_callbacks: auto start_session failed: %s", self.lanlan_name, e)
                 if isinstance(self.session, OmniOfflineClient):
-                    await self._deliver_agent_callbacks_text(instruction, callbacks_snapshot)
+                    delivered = await self._deliver_agent_callbacks_text(instruction, callbacks_snapshot)
                     logger.debug("[%s] trigger_agent_callbacks: auto text session delivered", self.lanlan_name)
                 else:
                     logger.debug("[%s] trigger_agent_callbacks: no websocket/session, keeping for later", self.lanlan_name)
@@ -6022,8 +6023,9 @@ class LLMSessionManager:
             self.pending_agent_callbacks.extend(callbacks_snapshot)
         finally:
             await self.state.fire(SessionEvent.PROACTIVE_DONE)
+        return delivered
 
-    async def _deliver_agent_callbacks_text(self, instruction: str, callbacks_snapshot: list) -> None:
+    async def _deliver_agent_callbacks_text(self, instruction: str, callbacks_snapshot: list) -> bool:
         """Execute prompt_ephemeral on an OmniOfflineClient session inside the
         proactive write lock. Caller holds the SM proactive claim (PHASE1).
 
@@ -6041,7 +6043,7 @@ class LLMSessionManager:
                 if self.state.is_proactive_preempted():
                     logger.info("[%s] trigger_agent_callbacks: preempted before sid claim, skipping", self.lanlan_name)
                     self.pending_agent_callbacks.extend(callbacks_snapshot)
-                    return
+                    return False
                 self.current_speech_id = str(uuid4())
                 self._tts_done_queued_for_turn = False
                 self._tts_done_pending_until_ready = False
@@ -6104,8 +6106,10 @@ class LLMSessionManager:
                 # pre-existing behavior — voice hot-swap that races in after
                 # text-mode delivery would have nothing to inject anyway.
                 self.pending_extra_replies.clear()
+                return True
             else:
                 self.pending_agent_callbacks.extend(callbacks_snapshot)
+                return False
 
     def _is_voice_session_active_or_starting(self) -> bool:
         """语音 session 正在启动或已经活跃时返回 True，用于阻止 greeting 干扰语音流。"""
@@ -7280,7 +7284,14 @@ class LLMSessionManager:
                         data if isinstance(data, str) else '',
                     )
 
+                    logger.info("[%s] text stream: before openclaw preflight len=%d", self.lanlan_name, len(data))
                     should_handoff, openclaw_messages = await self._should_handoff_text_to_openclaw(data)
+                    logger.info(
+                        "[%s] text stream: after openclaw preflight should_handoff=%s messages=%d",
+                        self.lanlan_name,
+                        should_handoff,
+                        len(openclaw_messages or []),
+                    )
                     if should_handoff:
                         handed_off = await self._dispatch_openclaw_handoff(data, openclaw_messages)
                         if handed_off:
@@ -7310,16 +7321,19 @@ class LLMSessionManager:
                     _agent_cb_ctx = ""
                     if self.pending_agent_callbacks:
                         try:
+                            logger.info("[%s] text stream: draining agent callbacks n=%d", self.lanlan_name, len(self.pending_agent_callbacks))
                             _agent_cb_ctx = self.drain_agent_callbacks_for_llm() or ""
                         except Exception as _cb_err:
                             logger.warning(f"⚠️ Agent callback drain failed: {_cb_err}")
                             _agent_cb_ctx = ""
 
                     self._active_text_request_id = message.get("request_id")
+                    logger.info("[%s] text stream: before stream_text len=%d", self.lanlan_name, len(data))
                     await self.session.stream_text(
                         data,
                         system_prefix=_agent_cb_ctx or None,
                     )
+                    logger.info("[%s] text stream: after stream_text", self.lanlan_name)
                 else:
                     logger.error(f"💥 Stream: Invalid text data type: {type(data)}")
                 return

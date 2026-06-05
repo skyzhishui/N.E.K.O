@@ -1012,7 +1012,7 @@ class FabiaoqingFetcher:
             return []
 
 
-async def fetch_meme_content(keyword: str = '', limit: int = 5) -> dict:
+async def fetch_meme_content(keyword: str = '', limit: int = 5, prefer_china: bool | None = None) -> dict:
     """
     高层封装：搜索表情包并返回结构化数据及格式化内容。
     用于主动搭话流程。
@@ -1027,7 +1027,7 @@ async def fetch_meme_content(keyword: str = '', limit: int = 5) -> dict:
     Returns:
         dict: 包含 success, data, formatted_content, raw_data, keyword_used, source, region
     """
-    china_region = is_china_region()
+    china_region = is_china_region() if prefer_china is None else bool(prefer_china)
     
     actual_keyword = keyword
     

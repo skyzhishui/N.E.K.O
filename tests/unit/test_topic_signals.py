@@ -1,0 +1,43 @@
+from main_logic.topic_signals import TopicSignalStore
+
+
+def test_topic_signal_store_keeps_filler_chat_below_ready_even_after_many_turns():
+    store = TopicSignalStore(min_user_turns_for_topic=4)
+
+    for text in ["嗯", "哈哈", "好", "可以", "啊", "行", "哦", "没事", "对", "不知道"]:
+        store.note_turn("妮可", actor="user", text=text, now=1.0)
+
+    assert store.readiness_percent("妮可") < 80
+    assert store.is_ready("妮可") is False
+    formatted = store.format_global_signals("妮可")
+    assert "收集进度:" in formatted
+    assert "信息密度:" in formatted
+
+
+def test_topic_signal_store_allows_dense_short_collection_to_be_analyzed():
+    store = TopicSignalStore(min_user_turns_for_topic=4)
+
+    store.note_turn("妮可", actor="user", text="我最近一直在纠结要不要换工作，怕换了之后更坑", now=1.0)
+    store.note_turn("妮可", actor="ai", text="你像是在怕失去可控感。", now=2.0)
+    store.note_turn("妮可", actor="user", text="对，我不是怕累，是怕选错了以后回不了头", now=3.0)
+    store.note_turn("妮可", actor="user", text="但现在这个工作又真的让我每天都很烦", now=4.0)
+
+    assert store.readiness_percent("妮可") >= 80
+    assert store.is_ready("妮可") is True
+    formatted = store.format_global_signals("妮可")
+    assert "稳定度:" in formatted
+    assert "换工作" in formatted
+
+
+def test_topic_signal_store_scores_repeated_theme_higher_than_unrelated_thin_turns():
+    repeated = TopicSignalStore(min_user_turns_for_topic=4)
+    repeated.note_turn("妮可", actor="user", text="我最近一直在看赛博朋克2077的夜之城细节", now=1.0)
+    repeated.note_turn("妮可", actor="user", text="夜之城那些路边小故事特别戳我", now=2.0)
+    repeated.note_turn("妮可", actor="user", text="我喜欢这种不直接讲但能让人懂的游戏细节", now=3.0)
+
+    scattered = TopicSignalStore(min_user_turns_for_topic=4)
+    scattered.note_turn("妮可", actor="user", text="今天还行", now=1.0)
+    scattered.note_turn("妮可", actor="user", text="这个按钮在哪", now=2.0)
+    scattered.note_turn("妮可", actor="user", text="哈哈确实", now=3.0)
+
+    assert repeated.readiness_percent("妮可") > scattered.readiness_percent("妮可")

@@ -22,6 +22,10 @@ Flat ``{lang_code: str}`` maps (resolved via ``_loc(MAP, lang)``):
   beyond the question-mark heuristic. Consumed by
   ``main_logic/activity/llm_enrichment.py:call_open_threads``.
 
+* ``TOPIC_CANDIDATE_PROMPTS`` — background-only prompt that turns recent
+  conversation snippets into 1-2 summarized deep-topic hooks. Consumed by
+  ``main_logic/activity/llm_enrichment.py:call_topic_candidates``.
+
 * ``OS_DEGRADED_MARKER`` — short bracketed text appended to the
   state-section header when the backend can't read the user's OS
   signals. Consumed by
@@ -216,6 +220,98 @@ Se discordar da classificação de regras, pontue com base nos sinais reais; a r
 
 Exemplo:
 {{"scores": {{"focused_work": 0.7, "chatting": 0.2, "idle": 0.1, "gaming": 0.0, "casual_browsing": 0.0, "voice_engaged": 0.0}}, "guess": "Master está codando no VS Code e às vezes troca para um app de chat para responder"}}""",
+}
+
+
+# ── Background topic hook candidates ────────────────────────────────
+
+TOPIC_CANDIDATE_PROMPTS: dict[str, str] = {
+    "zh": """你是一个陪伴产品的话题筛选助手。你的任务不是总结最近一句话，而是从“慢收集的全局证据 + 最近对话”里挑 1-2 个真的值得以后低频开口的深话题机会。
+
+======以下为慢收集的全局证据======
+{global_signals}
+======以上为慢收集的全局证据======
+
+======以下为最近对话（按时间顺序）======
+{conversation}
+======以上为最近对话（按时间顺序）======
+
+要求：
+- 不要复述用户原话，不要暴露“我分析了你的聊天记录”
+- 只保留和用户近期兴趣、计划、纠结、情绪、选择强相关，而且能从全局证据里看出稳定性的点
+- 不要把两个只是相邻出现的名词硬拼成一个话题；如果关联不自然，宁可不要输出
+- 寒暄、语气词、很薄的短句、问卷式问题，一律给低优先级或不要输出
+- 每个话题要像给角色的一张小抄：知道怎么自然开口，但最终开口仍交给角色生成
+- 重点是关系深度，不是触发频率；宁可少，不要硬凑
+- 如果这个话题适合联网补一点现实细节，给一个简短 search_query；查询词要围绕最稳定的关系点，不要围绕最近窗口里的偶然词
+
+输出严格 JSON（不带 markdown 代码块）：
+{{"topics": [
+  {{
+    "interest": "整理后的关系话题，不超过30字",
+    "hook": "从什么角度接住，不超过45字",
+    "opening_intent": "开口风格，不超过35字",
+    "deepening_hint": "用户接话后的展开方向，不超过40字",
+    "why_now": "为什么现在值得轻轻接一下，不超过50字",
+    "search_query": "用于联网补现实细节的查询词；不需要联网就留空",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+评分：
+- collection_score：这批慢收集证据整体是否够开一个深话题，低于 80 不要输出
+- readiness：证据是否已经够稳定，低于 70 不要输出
+- confidence：这个话题和用户的强相关程度，低于 55 不要输出
+- risk：打扰、冒犯、误解、硬凑的风险，高于 65 不要输出
+
+如果没有值得以后接的话题，输出 {{"topics": []}}。""",
+    "en": """You are a topic-screening assistant for a companionship product. Your job is not to summarize the last message, but to choose 1-2 genuinely worthwhile low-frequency topic opportunities from slow global evidence plus the recent conversation.
+
+======Slow global evidence======
+{global_signals}
+======End slow global evidence======
+
+======Recent conversation, chronological======
+{conversation}
+======End conversation======
+
+Rules:
+- Do not repeat the user's raw wording or reveal that chat logs were analyzed
+- Keep only topics strongly tied to recent interests, plans, dilemmas, emotions, or choices, with visible stability in the global evidence
+- Do not glue together two nouns just because they appeared near each other; if the association is not natural, output nothing
+- Greetings, filler, thin short replies, and survey-like prompts should be low priority or omitted
+- Each topic is a small note for the character: how to open naturally, not final copy
+- Relationship depth matters more than trigger frequency; fewer is better than forced
+- If a topic would benefit from a concrete online detail, provide a concise search_query. The query should target the stable relationship point, not an accidental recent keyword
+
+Output strict JSON, no markdown fences:
+{{"topics": [
+  {{
+    "interest": "summarized relationship topic, max 30 words",
+    "hook": "angle to naturally pick it up, max 45 words",
+    "opening_intent": "opening style, max 35 words",
+    "deepening_hint": "how to continue if the user responds, max 40 words",
+    "why_now": "why this is worth lightly picking up now, max 50 words",
+    "search_query": "query for online enrichment; empty if not needed",
+    "collection_score": 0-100,
+    "readiness": 0-100,
+    "confidence": 0-100,
+    "risk": 0-100,
+    "priority": 0-100
+  }}
+]}}
+
+Scoring:
+- collection_score: whether this slow-evidence batch is strong enough for one deeper hook; omit below 80
+- readiness: whether the evidence is stable enough; omit below 70
+- confidence: strength of connection to the user; omit below 55
+- risk: interruption/offense/misread/forced-association risk; omit above 65
+
+If nothing is worth keeping, output {{"topics": []}}.""",
 }
 
 

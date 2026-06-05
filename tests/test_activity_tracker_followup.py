@@ -681,6 +681,31 @@ def test_loader_returns_defaults_when_no_activity_section(tmp_path):
     assert p.user_app_overrides == {}
 
 
+def test_activity_tracker_sends_messages_to_background_topic_pool(monkeypatch):
+    from main_logic.activity.tracker import UserActivityTracker
+    from main_logic import topic_pipeline
+
+    calls = []
+
+    class FakeTopicPool:
+        def note_user_message(self, lanlan_name, text, *, lang='zh'):
+            calls.append(('user', lanlan_name, text, lang))
+
+        def note_ai_message(self, lanlan_name, text, *, lang='zh'):
+            calls.append(('ai', lanlan_name, text, lang))
+
+    monkeypatch.setattr(topic_pipeline, 'get_topic_hook_pool', lambda: FakeTopicPool())
+
+    tracker = UserActivityTracker('test_lanlan')
+    tracker.on_user_message(text='我想买凯迪拉克，但预算有点顶不住', now=1.0)
+    tracker.on_ai_message(text='别急着破釜沉舟，先看看预算。', now=2.0)
+
+    assert calls == [
+        ('user', 'test_lanlan', '我想买凯迪拉克，但预算有点顶不住', 'zh'),
+        ('ai', 'test_lanlan', '别急着破釜沉舟，先看看预算。', 'zh'),
+    ]
+
+
 # ── Hot-reload (Codex P2) ───────────────────────────────────────────
 
 

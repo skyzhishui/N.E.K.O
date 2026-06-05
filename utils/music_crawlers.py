@@ -1030,11 +1030,11 @@ async def close_all_crawlers():
 # 4. 主调度函数
 # =======================================================
 
-async def fetch_music_content(keyword: str, limit: int = 1) -> Dict[str, Any]:
+async def fetch_music_content(keyword: str, limit: int = 1, prefer_china: bool | None = None) -> Dict[str, Any]:
     """
     主音乐获取函数，带有“分段截断”的智能并发调度。
     """
-    china = is_china_region()
+    china = is_china_region() if prefer_china is None else bool(prefer_china)
     logger.info(f"音乐搜索请求: keyword='{keyword}', limit={limit}, is_china_region={china}")
 
     all_results = []

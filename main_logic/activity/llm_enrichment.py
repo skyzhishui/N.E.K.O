@@ -36,7 +36,11 @@ import re
 import time
 from typing import Any
 
-from config.prompts.prompts_activity import ACTIVITY_GUESS_PROMPTS, OPEN_THREADS_PROMPTS
+from config.prompts.prompts_activity import (
+    ACTIVITY_GUESS_PROMPTS,
+    OPEN_THREADS_PROMPTS,
+    TOPIC_CANDIDATE_PROMPTS,
+)
 from utils.file_utils import robust_json_loads
 
 logger = logging.getLogger(__name__)
@@ -243,6 +247,102 @@ async def call_open_threads(
     return cleaned
 
 
+async def call_topic_candidates(
+    *,
+    user_msgs: list[tuple[float, str]],
+    ai_msgs: list[tuple[float, str]],
+    lang: str,
+    global_signals: str = "",
+    timeout: float = 8.0,
+) -> list[dict[str, Any]] | None:
+    """Extract low-frequency deeper topic hooks for the background pool.
+
+    This is intentionally a background-only helper. It summarizes raw recent
+    turns into short topic materials, so proactive chat never needs to pull raw
+    conversation text synchronously.
+    """
+    lang_key = _normalize_lang(lang)
+    template = TOPIC_CANDIDATE_PROMPTS.get(lang_key, TOPIC_CANDIDATE_PROMPTS['en'])
+
+    if not user_msgs and not ai_msgs:
+        return []
+
+    prompt = template.format(
+        conversation=_format_conversation(user_msgs, ai_msgs),
+        global_signals=(global_signals or "(no global signals yet)").strip(),
+    )
+
+    raw = await _invoke_emotion_tier(prompt, timeout=timeout, label='topic_candidates')
+    if raw is None:
+        return None
+
+    parsed = _safe_parse_json(raw)
+    if not isinstance(parsed, dict):
+        logger.debug('topic_candidates: LLM did not return a JSON object: %r', raw[:200])
+        return None
+
+    topics = parsed.get('topics')
+    if not isinstance(topics, list):
+        return None
+
+    cleaned: list[dict[str, Any]] = []
+    for item in topics[:4]:
+        if not isinstance(item, dict):
+            continue
+        interest = str(item.get('interest') or '').strip()
+        if len(interest) < 4:
+            continue
+        try:
+            priority = int(item.get('priority', 80))
+        except (TypeError, ValueError):
+            priority = 80
+        if priority < 50:
+            continue
+        try:
+            readiness = int(item.get('readiness', priority))
+        except (TypeError, ValueError):
+            readiness = priority
+        try:
+            collection_score = int(item.get('collection_score', readiness))
+        except (TypeError, ValueError):
+            collection_score = readiness
+        try:
+            confidence = int(item.get('confidence', priority))
+        except (TypeError, ValueError):
+            confidence = priority
+        try:
+            risk = int(item.get('risk', 20))
+        except (TypeError, ValueError):
+            risk = 20
+        readiness = max(0, min(100, readiness))
+        collection_score = max(0, min(100, collection_score))
+        confidence = max(0, min(100, confidence))
+        risk = max(0, min(100, risk))
+        if collection_score < 80 or readiness < 70 or confidence < 55 or risk > 65:
+            continue
+        material = {
+            'interest': interest[:90],
+            'hook': str(item.get('hook') or '').strip()[:120],
+            'opening_intent': str(item.get('opening_intent') or '').strip()[:90],
+            'deepening_hint': str(item.get('deepening_hint') or '').strip()[:90],
+            'readiness': readiness,
+            'collection_score': collection_score,
+            'confidence': confidence,
+            'risk': risk,
+            'why_now': str(item.get('why_now') or '').strip()[:140],
+            'search_query': str(item.get('search_query') or '').strip()[:80],
+            'priority': max(0, min(100, priority)),
+        }
+        if not material['why_now']:
+            material['why_now'] = ''
+        if not material['search_query']:
+            material['search_query'] = ''
+        cleaned.append(material)
+        if len(cleaned) >= 2:
+            break
+    return cleaned
+
+
 # ── Internal LLM driver ─────────────────────────────────────────────
 
 async def _invoke_emotion_tier(prompt: str, *, timeout: float, label: str) -> str | None:
@@ -252,9 +352,8 @@ async def _invoke_emotion_tier(prompt: str, *, timeout: float, label: str) -> st
     full LLM stack — useful for tests that exercise prompt formatting
     without a live model.
     """
-    from langchain_core.messages import HumanMessage
     from utils.config_manager import get_config_manager
-    from utils.llm_client import create_chat_llm
+    from utils.llm_client import HumanMessage, create_chat_llm
     from utils.token_tracker import set_call_type
 
     try:

@@ -1,0 +1,488 @@
+import asyncio
+
+import pytest
+
+from main_logic.topic_pipeline import TopicHookPool
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_waits_for_slow_global_collection_before_analysis():
+    calls = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, global_signals):
+        calls.append(global_signals)
+        return [
+            {
+                "interest": "慢慢形成的长期兴趣",
+                "hook": "从多次提到的稳定兴趣切入",
+                "readiness": 91,
+                "confidence": 86,
+                "risk": 12,
+                "priority": 91,
+            }
+        ]
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=3,
+    )
+
+    pool.note_user_message("妮可", "第一句只是随口聊聊")
+    pool.note_user_message("妮可", "第二句还不够稳定，只是零散地提了一下工作")
+
+    await pool.process_now("妮可")
+
+    assert calls == []
+    assert pool.get_ready_materials("妮可") == []
+
+    pool.note_user_message("妮可", "第三句认真聊到最近一直在纠结换工作和现实压力")
+    await pool.process_now("妮可")
+
+    assert len(calls) == 1
+    assert "收集进度:" in calls[0]
+    assert "第一句只是随口聊聊" in calls[0]
+    assert pool.get_ready_materials("妮可")[0]["interest"] == "慢慢形成的长期兴趣"
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_global_signals_keep_more_than_recent_window():
+    captured = {}
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, global_signals):
+        captured["recent"] = list(user_msgs)
+        captured["global"] = global_signals
+        return [
+            {
+                "interest": "长期反复出现的换车兴趣",
+                "hook": "从长期反复出现的点轻轻接住",
+                "readiness": 95,
+                "confidence": 90,
+                "risk": 5,
+                "priority": 95,
+            }
+        ]
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=4,
+    )
+    for idx in range(10):
+        pool.note_user_message("妮可", f"第{idx}次聊换车和预算")
+
+    await pool.process_now("妮可")
+
+    assert "第0次聊换车和预算" not in captured["recent"]
+    assert "第0次聊换车和预算" in captured["global"]
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_collects_silently_until_background_processing():
+    calls = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        calls.append((list(user_msgs), list(ai_msgs), lang))
+        return [
+            {
+                "interest": "想买凯迪拉克但预算压力很大",
+                "hook": "从预算压力轻轻接住，别做理财课",
+                "opening_intent": "像朋友随口接一句",
+                "deepening_hint": "用户接话后，再聊目标和现实怎么折中",
+                "priority": 91,
+            }
+        ]
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=1,
+    )
+
+    pool.note_user_message(
+        "妮可",
+        "我想买凯迪拉克，但我根本买不起，毕业一年才攒了4600",
+        lang="zh-CN",
+    )
+
+    assert calls == []
+    assert pool.get_ready_materials("妮可") == []
+
+    await pool.process_now("妮可")
+
+    assert calls
+    materials = pool.get_ready_materials("妮可")
+    assert len(materials) == 1
+    assert materials[0]["interest"] == "想买凯迪拉克但预算压力很大"
+    assert "毕业一年才攒了4600" not in str(materials[0])
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_uses_ai_context_without_blocking_collection():
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        assert user_msgs == ["我想换工作，但是怕踩坑，最近每天都在想是不是该换个方向"]
+        assert ai_msgs == ["换工作这事可以慢慢拆，别上来就破釜沉舟。"]
+        return [
+            {
+                "interest": "想换工作但担心选错",
+                "hook": "接住换工作的犹豫，不催决定",
+            }
+        ]
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=1,
+    )
+
+    pool.note_user_message("妮可", "我想换工作，但是怕踩坑，最近每天都在想是不是该换个方向")
+    pool.note_ai_message("妮可", "换工作这事可以慢慢拆，别上来就破釜沉舟。")
+
+    assert pool.get_ready_materials("妮可") == []
+    await pool.process_now("妮可")
+
+    materials = pool.get_ready_materials("妮可")
+    assert materials[0]["interest"] == "想换工作但担心选错"
+    assert materials[0]["hook"] == "接住换工作的犹豫，不催决定"
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_passes_chat_language_to_online_enrichment(monkeypatch):
+    langs = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": "看平民代步车的小改件",
+                "hook": "聊入门小改怎么少花冤枉钱",
+            }
+        ]
+
+    async def fake_enrich(materials, *, lang=None, max_materials=2, **kwargs):
+        langs.append(lang)
+        return list(materials)
+
+    monkeypatch.setattr(
+        "main_logic.topic_pipeline.enrich_topic_materials_online",
+        fake_enrich,
+    )
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "你候选几个汽车品牌，我最近在想便宜代步车和预算怎么平衡", lang="zh-CN")
+
+    await pool.process_now("妮可")
+
+    assert langs == ["zh-CN"]
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_discards_stale_analysis_when_new_turn_arrives():
+    release = asyncio.Event()
+    calls = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        calls.append(list(user_msgs))
+        await release.wait()
+        return [
+            {
+                "interest": "旧话题",
+                "hook": "这不该覆盖新输入",
+                "priority": 90,
+            }
+        ]
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "第一句认真说一下我最近一直在纠结要不要换工作")
+
+    task = asyncio.create_task(pool.process_now("妮可"))
+    await asyncio.sleep(0)
+    pool.note_user_message("妮可", "第二句又补充说我主要怕选错以后回不了头")
+    release.set()
+    await task
+
+    assert calls == [["第一句认真说一下我最近一直在纠结要不要换工作"]]
+    assert pool.get_ready_materials("妮可") == []
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_discards_stale_analysis_when_new_turn_arrives_during_enrichment(monkeypatch):
+    entered_enrich = asyncio.Event()
+    release_enrich = asyncio.Event()
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": "旧话题",
+                "hook": "这不该覆盖新输入",
+                "priority": 90,
+            }
+        ]
+
+    async def fake_enrich(materials, *, lang=None, max_materials=2, **kwargs):
+        entered_enrich.set()
+        await release_enrich.wait()
+        return list(materials)
+
+    monkeypatch.setattr(
+        "main_logic.topic_pipeline.enrich_topic_materials_online",
+        fake_enrich,
+    )
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "第一句认真说一下我最近一直在纠结要不要换工作")
+
+    task = asyncio.create_task(pool.process_now("妮可"))
+    await entered_enrich.wait()
+    pool.note_user_message("妮可", "第二句又补充说我主要怕选错以后回不了头")
+    release_enrich.set()
+    await task
+
+    assert pool.get_ready_materials("妮可") == []
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_triggers_ready_hook_after_quiet_window():
+    delivered = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": "买车像进入新生活阶段",
+                "hook": "从买车背后的生活阶段感切入",
+                "priority": 95,
+            }
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        delivered.append((lanlan_name, material["interest"], lang))
+        return True
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.01,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "我感觉买车算人生大事，最近一直在想它是不是代表生活进入新阶段", lang="zh-CN")
+
+    await pool.process_now("妮可")
+    assert delivered == []
+
+    await asyncio.sleep(0.03)
+
+    assert delivered == [("妮可", "买车像进入新生活阶段", "zh-CN")]
+    assert pool.get_ready_materials("妮可")[0]["status"] == "used"
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_keeps_material_pending_when_delivery_defers():
+    attempts = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": "买车像进入新生活阶段",
+                "hook": "从买车背后的生活阶段感切入",
+                "priority": 95,
+            }
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        attempts.append((lanlan_name, material["interest"], lang))
+        return False
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.01,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "我感觉买车算人生大事，最近一直在想它是不是代表生活进入新阶段", lang="zh-CN")
+
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.03)
+
+    assert attempts == [("妮可", "买车像进入新生活阶段", "zh-CN")]
+    assert pool.get_ready_materials("妮可")[0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_resets_trigger_wait_when_chat_continues():
+    delivered = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": user_msgs[-1],
+                "hook": "接住最新话题",
+                "priority": 90,
+            }
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        delivered.append(material["interest"])
+        return True
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.04,
+        min_user_turns_for_topic=1,
+    )
+    pool.note_user_message("妮可", "旧话题：我最近一直在纠结买车是不是代表生活进入新阶段", lang="zh-CN")
+    await pool.process_now("妮可")
+
+    await asyncio.sleep(0.02)
+    pool.note_user_message("妮可", "新话题：我后来又开始纠结换工作和现实压力怎么平衡", lang="zh-CN")
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.03)
+    assert delivered == []
+
+    await asyncio.sleep(0.03)
+    assert delivered == ["新话题：我后来又开始纠结换工作和现实压力怎么平衡"]
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_limits_daily_topic_triggers_to_two():
+    delivered = []
+    analyzer_calls = 0
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        nonlocal analyzer_calls
+        interests = [
+            "凯迪拉克预算压力",
+            "周末海边旅行计划",
+            "新房装修色差问题",
+        ]
+        analyzer_calls += 1
+        return [
+            {
+                "interest": interests[analyzer_calls - 1],
+                "hook": f"自然接住{interests[analyzer_calls - 1]}",
+                "priority": 95,
+            }
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        delivered.append(material["interest"])
+        return True
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.01,
+        min_trigger_gap_seconds=0,
+        min_user_turns_for_topic=1,
+    )
+
+    for idx in range(3):
+        pool.note_user_message("妮可", f"第{idx}轮认真聊一个新方向，信息量足够做深话题", lang="zh-CN")
+        await pool.process_now("妮可")
+        await asyncio.sleep(0.03)
+
+    assert delivered == ["凯迪拉克预算压力", "周末海边旅行计划"]
+    assert pool.get_ready_materials("妮可") == []
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_does_not_trigger_second_topic_immediately_after_first():
+    delivered = []
+    analyzer_calls = 0
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        nonlocal analyzer_calls
+        analyzer_calls += 1
+        interest = "凯迪拉克预算压力" if analyzer_calls == 1 else "海边旅行计划"
+        return [
+            {
+                "interest": interest,
+                "hook": f"自然接住{interest}",
+                "priority": 95,
+            }
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        delivered.append(material["interest"])
+        return True
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.01,
+        min_trigger_gap_seconds=0.2,
+        min_user_turns_for_topic=1,
+    )
+
+    pool.note_user_message("妮可", "第一轮认真聊一个深话题，里面有足够多的具体背景、现实纠结、近期计划和反复提到的细节", lang="zh-CN")
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.03)
+    assert delivered == ["凯迪拉克预算压力"]
+
+    pool.note_user_message("妮可", "第二轮又聊出另一个深话题，依然有明确场景、具体选择、近期困扰和可以继续展开的细节", lang="zh-CN")
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.05)
+    assert delivered == ["凯迪拉克预算压力"]
+
+    await asyncio.sleep(0.2)
+    assert delivered == ["凯迪拉克预算压力", "海边旅行计划"]
+
+
+@pytest.mark.asyncio
+async def test_topic_pool_suppresses_same_topic_after_it_was_used_today():
+    delivered = []
+
+    async def fake_analyzer(*, user_msgs, ai_msgs, lang, **kwargs):
+        return [
+            {
+                "interest": "文本世界模型的无撤回机制与幻觉问题",
+                "hook": "从模型没有撤回功能切入",
+                "search_query": "文本世界模型 无撤回 幻觉",
+                "priority": 95,
+            }
+        ]
+
+    async def fake_trigger(*, lanlan_name, material, lang):
+        delivered.append(material["interest"])
+        return True
+
+    pool = TopicHookPool(
+        analyzer=fake_analyzer,
+        auto_schedule=False,
+        enable_online_enrichment=False,
+        topic_trigger=fake_trigger,
+        trigger_delay_seconds=0.01,
+        min_user_turns_for_topic=1,
+    )
+
+    pool.note_user_message("妮可", "我在研究文本世界模型，因为没有撤回功能所以会产生幻觉", lang="zh-CN")
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.03)
+
+    pool.note_user_message("妮可", "继续说文本世界模型，逐字预测和幻觉这个方向真的很关键", lang="zh-CN")
+    await pool.process_now("妮可")
+    await asyncio.sleep(0.03)
+
+    assert delivered == ["文本世界模型的无撤回机制与幻觉问题"]
+    assert pool.get_ready_materials("妮可") == []

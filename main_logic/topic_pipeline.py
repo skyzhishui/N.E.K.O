@@ -1,0 +1,522 @@
+"""Background topic hook collection for proactive chat.
+
+Ordinary chat must never wait for topic screening, online enrichment, or
+prompt building. This module keeps the synchronous entrypoints tiny: record a
+recent turn, optionally schedule a background worker, and return immediately.
+The proactive endpoint reads only the prepared pool.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+import time
+from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from copy import deepcopy
+from typing import Any
+
+from main_logic.topic_materials import enrich_topic_materials_online
+from main_logic.topic_signals import TopicSignalStore
+
+
+logger = logging.getLogger("N.E.K.O.Main.topic_pipeline")
+
+Analyzer = Callable[
+    ...,
+    Awaitable[Iterable[Mapping[str, Any]] | None],
+]
+TopicTrigger = Callable[
+    ...,
+    Awaitable[bool],
+]
+
+_MAX_TURNS_PER_SIDE = 8
+_MAX_TEXT_CHARS = 1000
+_PROCESS_DEBOUNCE_SECONDS = 45.0
+_TRIGGER_AFTER_QUIET_SECONDS = 60.0
+_MIN_TOPIC_TRIGGER_GAP_SECONDS = 4 * 60 * 60
+_MAX_DAILY_TOPIC_TRIGGERS = 2
+_USED_TOPIC_TTL_SECONDS = 24 * 60 * 60
+_ZH_STOP_CHARS = set("的一是在不了和就都而及与着或吗呢啊吧呀也很还再又这那我你他她它")
+
+
+def _clean_text(value: Any, *, limit: int = _MAX_TEXT_CHARS) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    if len(text) > limit:
+        return text[:limit].rstrip() + "..."
+    return text
+
+
+def _clean_material(material: Mapping[str, Any]) -> dict[str, Any] | None:
+    interest = _clean_text(material.get("interest"), limit=90)
+    if not interest:
+        return None
+    hook = _clean_text(material.get("hook"), limit=120)
+    opening = _clean_text(material.get("opening_intent"), limit=90)
+    deepening = _clean_text(material.get("deepening_hint"), limit=90)
+    try:
+        priority = int(material.get("priority", 80))
+    except (TypeError, ValueError):
+        priority = 80
+    try:
+        readiness = int(material.get("readiness", priority))
+    except (TypeError, ValueError):
+        readiness = priority
+    try:
+        collection_score = int(material.get("collection_score", readiness))
+    except (TypeError, ValueError):
+        collection_score = readiness
+    try:
+        confidence = int(material.get("confidence", priority))
+    except (TypeError, ValueError):
+        confidence = priority
+    try:
+        risk = int(material.get("risk", 20))
+    except (TypeError, ValueError):
+        risk = 20
+    return {
+        "hook_id": str(material.get("hook_id") or ""),
+        "source": "background_topic_pool",
+        "interest": interest,
+        "hook": hook or f"自然接住「{interest}」，不要像总结报告。",
+        "opening_intent": opening or "具体、短、像随口一提；不要像问卷。",
+        "deepening_hint": deepening or "如果用户接话，再顺着用户反应展开。",
+        "media_intent": list(material.get("media_intent") or ["news"])[:2],
+        "why_now": _clean_text(material.get("why_now"), limit=140),
+        "search_query": _clean_text(material.get("search_query"), limit=80),
+        "collection_score": max(0, min(100, collection_score)),
+        "readiness": max(0, min(100, readiness)),
+        "confidence": max(0, min(100, confidence)),
+        "risk": max(0, min(100, risk)),
+        "priority": max(0, min(100, priority)),
+        "status": "pending",
+        "created_at": float(material.get("created_at") or time.time()),
+    }
+
+
+def _material_is_ready(material: Mapping[str, Any]) -> bool:
+    try:
+        collection_score = int(material.get("collection_score", material.get("readiness", material.get("priority", 0))))
+        readiness = int(material.get("readiness", material.get("priority", 0)))
+        confidence = int(material.get("confidence", material.get("priority", 0)))
+        risk = int(material.get("risk", 20))
+    except (TypeError, ValueError):
+        return False
+    return collection_score >= 80 and readiness >= 70 and confidence >= 55 and risk <= 65
+
+
+def _material_log_preview(material: Mapping[str, Any]) -> str:
+    hint = material.get("material_hint")
+    hint_summary = ""
+    if isinstance(hint, Mapping):
+        hint_summary = _clean_text(hint.get("summary"), limit=100)
+    parts = [
+        f"priority={material.get('priority')}",
+        f"collection={material.get('collection_score')}",
+        f"readiness={material.get('readiness')}",
+        f"confidence={material.get('confidence')}",
+        f"risk={material.get('risk')}",
+        f"interest={_clean_text(material.get('interest'), limit=80)}",
+        f"hook={_clean_text(material.get('hook'), limit=100)}",
+    ]
+    if material.get("online_used"):
+        parts.append(f"online={_clean_text(material.get('online_angle'), limit=100)}")
+    if hint_summary:
+        parts.append(f"hint={hint_summary}")
+    return " | ".join(parts)
+
+
+def _topic_units(text: str) -> set[str]:
+    cleaned = _clean_text(text, limit=240).lower()
+    units = {
+        token
+        for token in re.findall(r"[a-z0-9]{3,}", cleaned)
+        if token
+    }
+    chars = [
+        char
+        for char in cleaned
+        if "\u4e00" <= char <= "\u9fff" and char not in _ZH_STOP_CHARS
+    ]
+    units.update(chars)
+    for idx in range(len(chars) - 1):
+        units.add(chars[idx] + chars[idx + 1])
+    return units
+
+
+def _material_topic_units(material: Mapping[str, Any]) -> set[str]:
+    return _topic_units(
+        " ".join(
+            str(material.get(key) or "")
+            for key in ("interest", "hook", "search_query", "online_query")
+        )
+    )
+
+
+def _topic_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    overlap = len(left & right)
+    return overlap / max(1, min(len(left), len(right)))
+
+
+async def _default_analyzer(
+    *,
+    user_msgs: list[str],
+    ai_msgs: list[str],
+    lang: str,
+    global_signals: str = "",
+):
+    from main_logic.activity.llm_enrichment import call_topic_candidates
+
+    now = time.time()
+    return await call_topic_candidates(
+        user_msgs=[(now + idx * 0.001, text) for idx, text in enumerate(user_msgs)],
+        ai_msgs=[(now + idx * 0.001, text) for idx, text in enumerate(ai_msgs)],
+        lang=lang,
+        global_signals=global_signals,
+    )
+
+
+def _privacy_mode_active() -> bool:
+    try:
+        from utils.preferences import is_privacy_mode_enabled
+        return is_privacy_mode_enabled()
+    except Exception:
+        return True
+
+
+class TopicHookPool:
+    """In-memory per-character topic pool prepared by background work."""
+
+    def __init__(
+        self,
+        *,
+        analyzer: Analyzer | None = None,
+        topic_trigger: TopicTrigger | None = None,
+        auto_schedule: bool = True,
+        enable_online_enrichment: bool = True,
+        debounce_seconds: float = _PROCESS_DEBOUNCE_SECONDS,
+        trigger_delay_seconds: float = _TRIGGER_AFTER_QUIET_SECONDS,
+        min_trigger_gap_seconds: float = _MIN_TOPIC_TRIGGER_GAP_SECONDS,
+        min_user_turns_for_topic: int = 4,
+        daily_topic_limit: int = _MAX_DAILY_TOPIC_TRIGGERS,
+    ) -> None:
+        self._analyzer = analyzer or _default_analyzer
+        self._topic_trigger = topic_trigger
+        self._auto_schedule = auto_schedule
+        self._enable_online_enrichment = enable_online_enrichment
+        self._debounce_seconds = max(0.0, float(debounce_seconds))
+        self._trigger_delay_seconds = max(0.0, float(trigger_delay_seconds))
+        self._min_trigger_gap_seconds = max(0.0, float(min_trigger_gap_seconds))
+        self._daily_topic_limit = max(0, int(daily_topic_limit))
+        self._signal_store = TopicSignalStore(
+            min_user_turns_for_topic=min_user_turns_for_topic,
+        )
+        self._user_turns: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=_MAX_TURNS_PER_SIDE))
+        self._ai_turns: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=_MAX_TURNS_PER_SIDE))
+        self._langs: dict[str, str] = {}
+        self._materials: dict[str, list[dict[str, Any]]] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
+        self._trigger_tasks: dict[str, asyncio.Task] = {}
+        self._used_topics: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self._dirty: set[str] = set()
+        self._seq: dict[str, int] = defaultdict(int)
+
+    def note_user_message(self, lanlan_name: str, text: Any, *, lang: str = "zh") -> None:
+        cleaned = _clean_text(text)
+        if not cleaned:
+            return
+        name = str(lanlan_name or "default")
+        self._seq[name] += 1
+        self._user_turns[name].append(cleaned)
+        self._signal_store.note_turn(name, actor="user", text=cleaned, lang=lang)
+        self._langs[name] = lang or self._langs.get(name, "zh")
+        self._dirty.add(name)
+        self._cancel_trigger(name)
+        self._schedule(name)
+
+    def note_ai_message(self, lanlan_name: str, text: Any, *, lang: str = "zh") -> None:
+        cleaned = _clean_text(text)
+        if not cleaned:
+            return
+        name = str(lanlan_name or "default")
+        self._seq[name] += 1
+        self._ai_turns[name].append(cleaned)
+        self._signal_store.note_turn(name, actor="ai", text=cleaned, lang=lang)
+        self._langs[name] = lang or self._langs.get(name, "zh")
+        self._dirty.add(name)
+        self._cancel_trigger(name)
+        self._schedule(name)
+
+    def get_ready_materials(self, lanlan_name: str, *, max_items: int = 2) -> list[dict[str, Any]]:
+        name = str(lanlan_name or "default")
+        materials = sorted(
+            self._materials.get(name, []),
+            key=lambda item: int(item.get("priority", 0)),
+            reverse=True,
+        )
+        return deepcopy(materials[:max_items])
+
+    async def process_now(
+        self,
+        lanlan_name: str,
+        *,
+        lang: str | None = None,
+        enrich_online: bool | None = None,
+    ) -> None:
+        name = str(lanlan_name or "default")
+        if _privacy_mode_active():
+            self._user_turns.pop(name, None)
+            self._ai_turns.pop(name, None)
+            self._signal_store.clear(name)
+            self._materials.pop(name, None)
+            self._dirty.discard(name)
+            return
+        seen_seq = self._seq.get(name, 0)
+        user_msgs = list(self._user_turns.get(name, ()))
+        ai_msgs = list(self._ai_turns.get(name, ()))
+        if not user_msgs and not ai_msgs:
+            self._dirty.discard(name)
+            return
+        if self._daily_quota_reached(name):
+            logger.info("[%s] topic collection paused: daily topic quota reached", name)
+            self._materials.pop(name, None)
+            self._dirty.discard(name)
+            return
+        if not self._signal_store.is_ready(name):
+            logger.info(
+                "[%s] topic collection not ready: %s%%",
+                name,
+                self._signal_store.readiness_percent(name),
+            )
+            self._materials.pop(name, None)
+            self._dirty.discard(name)
+            return
+        topic_lang = lang or self._langs.get(name, "zh")
+        global_signals = self._signal_store.format_global_signals(name)
+        raw_materials = await self._analyzer(
+            user_msgs=user_msgs,
+            ai_msgs=ai_msgs,
+            lang=topic_lang,
+            global_signals=global_signals,
+        )
+        if self._seq.get(name, 0) != seen_seq:
+            return
+        cleaned = [
+            material
+            for material in (_clean_material(item) for item in (raw_materials or []))
+            if material is not None and _material_is_ready(material)
+        ][:2]
+        if cleaned and (self._enable_online_enrichment if enrich_online is None else enrich_online):
+            cleaned = await enrich_topic_materials_online(cleaned, lang=topic_lang, max_materials=1)
+        if self._seq.get(name, 0) != seen_seq:
+            return
+        cleaned = self._filter_available_materials(name, cleaned)
+        if self._daily_quota_reached(name):
+            cleaned = []
+        self._materials[name] = cleaned
+        if cleaned:
+            for idx, material in enumerate(cleaned, start=1):
+                logger.info(
+                    "[%s] topic material ready #%d: %s",
+                    name,
+                    idx,
+                    _material_log_preview(material),
+                )
+            self._schedule_trigger(name, cleaned[0], topic_lang, expected_seq=self._seq.get(name, 0))
+        else:
+            logger.info("[%s] topic material ready: none", name)
+        self._dirty.discard(name)
+
+    def _schedule(self, name: str) -> None:
+        if not self._auto_schedule:
+            return
+        task = self._tasks.get(name)
+        if task is not None and not task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._tasks[name] = loop.create_task(self._run_later(name), name=f"topic_pool_{name}")
+
+    async def _run_later(self, name: str) -> None:
+        if self._debounce_seconds:
+            await asyncio.sleep(self._debounce_seconds)
+        if name in self._dirty:
+            await self.process_now(name)
+        if name in self._dirty:
+            self._tasks.pop(name, None)
+            self._schedule(name)
+
+    def _cancel_trigger(self, name: str) -> None:
+        task = self._trigger_tasks.pop(name, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _schedule_trigger(
+        self,
+        name: str,
+        material: Mapping[str, Any],
+        lang: str,
+        *,
+        expected_seq: int,
+    ) -> None:
+        if self._topic_trigger is None:
+            return
+        self._cancel_trigger(name)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._trigger_tasks[name] = loop.create_task(
+            self._run_trigger_after_quiet_window(
+                name,
+                deepcopy(dict(material)),
+                lang,
+                expected_seq=expected_seq,
+            ),
+            name=f"topic_trigger_{name}",
+        )
+
+    async def _run_trigger_after_quiet_window(
+        self,
+        name: str,
+        material: dict[str, Any],
+        lang: str,
+        *,
+        expected_seq: int,
+    ) -> None:
+        try:
+            wait_seconds = max(
+                self._trigger_delay_seconds,
+                self._seconds_until_next_topic_trigger(name),
+            )
+            if wait_seconds:
+                await asyncio.sleep(wait_seconds)
+            if self._seq.get(name, 0) != expected_seq:
+                return
+            current = self._materials.get(name) or []
+            if not current:
+                return
+            hook_id = material.get("hook_id")
+            current_material = current[0]
+            if hook_id and current_material.get("hook_id") != hook_id:
+                return
+            if current_material.get("status") != "pending":
+                return
+            if self._daily_quota_reached(name) or self._topic_was_used_today(name, current_material):
+                current_material["status"] = "skipped"
+                self._materials[name] = []
+                logger.info("[%s] topic material trigger skipped: already used or daily quota reached", name)
+                return
+            triggered = await self._topic_trigger(
+                lanlan_name=name,
+                material=deepcopy(current_material),
+                lang=lang,
+            )
+            if not triggered:
+                logger.info("[%s] topic material trigger skipped by delivery bridge", name)
+                return
+            current_material["status"] = "used"
+            current_material["used_at"] = time.time()
+            self._mark_topic_used(name, current_material)
+            logger.info(
+                "[%s] topic material triggered once: %s",
+                name,
+                _material_log_preview(current_material),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("[%s] topic material trigger failed: %s", name, exc)
+        finally:
+            task = self._trigger_tasks.get(name)
+            if task is asyncio.current_task():
+                self._trigger_tasks.pop(name, None)
+
+    def _prune_used_topics(self, name: str, *, now: float | None = None) -> list[dict[str, Any]]:
+        current_time = float(now if now is not None else time.time())
+        records = [
+            record
+            for record in self._used_topics.get(name, [])
+            if current_time - float(record.get("used_at") or 0.0) < _USED_TOPIC_TTL_SECONDS
+        ]
+        if records:
+            self._used_topics[name] = records
+        else:
+            self._used_topics.pop(name, None)
+        return records
+
+    def _daily_quota_reached(self, name: str) -> bool:
+        if self._daily_topic_limit <= 0:
+            return True
+        return len(self._prune_used_topics(name)) >= self._daily_topic_limit
+
+    def _seconds_until_next_topic_trigger(self, name: str, *, now: float | None = None) -> float:
+        if self._min_trigger_gap_seconds <= 0:
+            return 0.0
+        records = self._prune_used_topics(name, now=now)
+        if not records:
+            return 0.0
+        latest_used_at = max(float(record.get("used_at") or 0.0) for record in records)
+        current_time = float(now if now is not None else time.time())
+        elapsed = max(0.0, current_time - latest_used_at)
+        return max(0.0, self._min_trigger_gap_seconds - elapsed)
+
+    def _topic_was_used_today(self, name: str, material: Mapping[str, Any]) -> bool:
+        units = _material_topic_units(material)
+        hook_id = str(material.get("hook_id") or "").strip()
+        interest = _clean_text(material.get("interest"), limit=90)
+        for record in self._prune_used_topics(name):
+            if hook_id and record.get("hook_id") == hook_id:
+                return True
+            if interest and record.get("interest") == interest:
+                return True
+            if _topic_similarity(units, set(record.get("units") or ())) >= 0.55:
+                return True
+        return False
+
+    def _filter_available_materials(
+        self,
+        name: str,
+        materials: Iterable[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        available: list[dict[str, Any]] = []
+        for material in materials:
+            if self._daily_quota_reached(name):
+                break
+            if self._topic_was_used_today(name, material):
+                logger.info("[%s] topic material suppressed as already used today: %s", name, _material_log_preview(material))
+                continue
+            available.append(dict(material))
+        return available
+
+    def _mark_topic_used(self, name: str, material: Mapping[str, Any]) -> None:
+        self._prune_used_topics(name)
+        self._used_topics[name].append(
+            {
+                "used_at": float(material.get("used_at") or time.time()),
+                "hook_id": str(material.get("hook_id") or "").strip(),
+                "interest": _clean_text(material.get("interest"), limit=90),
+                "units": sorted(_material_topic_units(material)),
+            }
+        )
+
+
+def _default_topic_trigger():
+    from main_logic.topic_delivery import trigger_topic_hook_once
+
+    return trigger_topic_hook_once
+
+
+_GLOBAL_TOPIC_POOL = TopicHookPool(topic_trigger=_default_topic_trigger())
+
+
+def get_topic_hook_pool() -> TopicHookPool:
+    return _GLOBAL_TOPIC_POOL
