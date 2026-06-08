@@ -50,6 +50,32 @@ def test_build_topic_hook_callback_requires_visible_online_angle_when_available(
     assert "必须自然用上其中一个具体信息" in callback["detail"]
 
 
+def test_build_topic_hook_callback_localizes_detail_for_japanese():
+    callback = build_topic_hook_callback(
+        {
+            "hook_id": "topic_music",
+            "interest": "夜に聴くインディーポップ",
+            "hook": "眠る前の静かな気分から入る",
+            "opening_intent": "友達みたいに短く触れる",
+            "deepening_hint": "相手が乗ったら最近の曲の好みに広げる",
+            "why_now": "最近よく音楽の話をしている",
+            "material_hint": {"summary": "週末に聴いた曲の話題"},
+            "online_query": "日本 インディーポップ 夜 おすすめ",
+            "online_angle": "検索結果では夜向けの落ち着いたプレイリストが紹介されている",
+        },
+        lang="ja",
+    )
+
+    detail = callback["detail"]
+    assert "これは、すでに選別済みの低頻度な深掘り話題 hook です。" in detail
+    assert "関係するポイント：夜に聴くインディーポップ" in detail
+    assert "オンライン補足：" in detail
+    assert "自然な一言の切り出しだけを生成してください" in detail
+    assert "这是一个已经筛好的低频深话题 hook" not in detail
+    assert "关系点：" not in detail
+    assert "请只生成一句自然开场" not in detail
+
+
 @pytest.mark.asyncio
 async def test_trigger_topic_hook_once_enqueues_existing_manager_callback(monkeypatch):
     mgr = MagicMock()
