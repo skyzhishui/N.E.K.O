@@ -20,7 +20,7 @@
 ``ChatOpenAI``:**
 
 1. **Do not pass ``temperature=...``**. Both default to ``None`` (not written into the
-   request body), letting the model end respond with its own default behavior. The
+   request body), letting the model endpoint respond with its own default behavior. The
    same rule applies to any wrapper helper (e.g. ``FactStore._allm_call_with_retries``
    historically accepted ``temperature=``; it has been removed).
    Rationale: (1) compatibility with models that reject the parameter, such as

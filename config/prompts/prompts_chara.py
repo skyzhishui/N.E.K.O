@@ -125,7 +125,7 @@ Users interacting with {LANLAN_NAME} are already reminded that she is a purely f
 # ============================================================================
 
 def _normalize_lang(lang: str) -> str:
-    """Normalize a language code to a supported key (zh/zh-TW/en/ja/ko/ru)"""
+    """Normalize a language code to a supported key (zh/zh-TW/en/ja/ko/ru/es/pt)"""
     if not lang:
         return 'en'
     lang_lower = lang.lower()
