@@ -67,7 +67,7 @@ ban-topic regex vs. negative-keyword scan
   it is the fast pre-filter for evidence (LLM re-checks the target on a hit) and also
   covers the "annoyed" family ("烦死", "annoying" — no term, not a directive, but
   still a negative signal)
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import re
@@ -329,7 +329,7 @@ def extract_directives(text: str) -> List[Tuple[str, str, str]]:
     hit patterns from multiple locales; deduping here avoids one sentence producing 5
     records, while **different** terms from the same sentence ("别提小明和小红") are
     still each recorded — provided the template can split out two matches.
-    """
+    """  # noqa: DOCSTRING_CJK
     if not text:
         return []
     seen: set[tuple[str, str]] = set()

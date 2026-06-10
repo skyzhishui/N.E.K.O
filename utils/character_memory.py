@@ -59,7 +59,7 @@ def iter_character_memory_roots(config_manager) -> list[Path]:
         moves directories still present in ``characters.json[猫娘]`` to the runtime.
       - Manual cleanup button: the Workshop page's "clean up legacy memory" scan +
         user-checked deletion.
-    """
+    """  # noqa: DOCSTRING_CJK
     roots: list[Path] = []
     seen: set[str] = set()
 

@@ -57,7 +57,7 @@ Not extracted
 - Too-short drafts (< ``ANTI_REPEAT_MIN_DRAFT_TOKENS`` ngrams): the BM25 signal is
   unstable there, and short replies don't naturally "repeat"; pass with ``score=0``
 - Empty corpus: BM25 degrades to 0; every draft passes
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import json
@@ -202,7 +202,7 @@ def bm25_score(
 
     Edge cases:
     - empty ``fg_docs`` or empty ``draft_ngrams`` → ``(0.0, {})``
-    """
+    """  # noqa: DOCSTRING_CJK
     if not draft_ngrams or not fg_docs:
         return 0.0, {}
     if bg_docs is None:
@@ -346,7 +346,7 @@ class AntiRepeatCorpus:
         - Empty names normalize to ``_DEFAULT_KEY`` (consistent with the
           user_directives sink / injection path); otherwise BM25 / soft hints would
           break entirely under an empty lanlan_name config (codex P2)
-        """
+        """  # noqa: DOCSTRING_CJK
         if not text or not text.strip():
             return
         name = _resolve_name(name)

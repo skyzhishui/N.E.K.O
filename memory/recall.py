@@ -56,7 +56,7 @@ signal detection (which would either reinforce or negate the wrong
 observation).  Keeping the LLM as the arbiter means we save *prompt
 tokens* (smaller candidate set in the Stage-2 prompt), not *LLM
 calls* — RFC §3.4 stays unchanged in shape.
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import logging

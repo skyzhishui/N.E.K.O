@@ -316,7 +316,7 @@ def time_since_label(
     - 30+ days  → "{n // 30} 月前" (months ago)
 
     Returns an empty string when the anchor cannot be parsed.
-    """
+    """  # noqa: DOCSTRING_CJK
     days = days_since(anchor_iso, now=now)
     if days is None:
         return ""

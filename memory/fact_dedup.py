@@ -47,7 +47,7 @@ When the EmbeddingService is disabled, no candidates are ever
 enqueued, so ``aresolve`` always sees an empty queue and the legacy
 hash + FTS5 dedup path is the entire dedup pipeline — exactly the
 behaviour pre-P2.
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import asyncio
@@ -285,7 +285,7 @@ class FactDedupResolver:
         fact already absorbed into a reflection is skipped. Re-merging
         a paraphrase into an absorbed fact would resurrect it from the
         archive path, which is worse than the duplicate.
-        """
+        """  # noqa: DOCSTRING_CJK
         results: list[dict] = []
         # Pre-bucket by entity so the inner loop only walks relevant rows.
         by_entity: dict[str, list[dict]] = {}

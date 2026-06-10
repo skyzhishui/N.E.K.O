@@ -38,7 +38,7 @@ Design notes:
 - ``strip_stop_names`` is a substring replace; good enough for CJK / short
   Latin names. Word-boundary handling for long Latin names is left for future
   need.
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import re
@@ -157,7 +157,7 @@ def strip_stop_names(text: str, stop_names: list[str] | None) -> str:
         replace. CJK has no word-boundary concept, and a CJK string of >= 2
         chars is specific enough that substring collateral damage is
         vanishingly rare.
-    """
+    """  # noqa: DOCSTRING_CJK
     if not text or not stop_names:
         return text
     out = text

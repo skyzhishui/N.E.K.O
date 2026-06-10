@@ -1179,7 +1179,7 @@ def render_profile_rename_event_context(
     reader is the catgirl while the renamer is the user, so person markers are dropped
     in favor of a neutral statement, lest the first person make the user's rename look
     like the catgirl's own.
-    """
+    """  # noqa: DOCSTRING_CJK
     lang_key = _normalize_memory_prompt_lang(lang)
     if str(entity or "").strip().lower() == "master":
         field_dict, text_dict = PROFILE_RENAME_EVENT_FIELD_MASTER, PROFILE_RENAME_EVENT_TEXT_MASTER
@@ -2379,7 +2379,7 @@ def get_summary_stale_hint(lang: str, gap_hours: float) -> str:
     """Return locale-formatted stale hint for compress_history.
 
     gap_hours is rounded to one decimal ("1.5 小时" / "1.5 hours"). Unknown lang falls back to zh.
-    """
+    """  # noqa: DOCSTRING_CJK
     tmpl = _loc(SUMMARY_STALE_HINT, lang)
     return tmpl.replace('{GAP}', f"{gap_hours:.1f}")
 

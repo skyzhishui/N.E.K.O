@@ -27,7 +27,7 @@ Usage:
 
 Token is loaded from utils.config_manager.get_core_config()["ASSIST_API_KEY_QWEN"]
 (the DashScope API key), not the AUDIO_API_KEY used by the lanlan.app free proxy.
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import argparse

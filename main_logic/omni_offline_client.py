@@ -1584,7 +1584,7 @@ class OmniOfflineClient:
         content means accepting that the callback text is persisted into
         ``_conversation_history`` along with the user message (consistent with the
         voice side's user-role injection semantics).
-        """
+        """  # noqa: DOCSTRING_CJK
         if not text or not text.strip():
             # If only images without text, use a default prompt
             if self._pending_images:

@@ -124,7 +124,7 @@ def _tokenize(text: str, stop_names: list[str] | None) -> list[str]:
 
     stop_names: strip master/catgirl names from the text before tokenizing,
     keeping high-frequency entity names from polluting BM25 IDF.
-    """
+    """  # noqa: DOCSTRING_CJK
     # Lazy import: 跟着 _extract_keywords 一起借 _SPLIT_RE 和 strip_stop_names，
     # 不要硬依赖 import-time —— persona 在某些 entrypoint（memory-only test）
     # 可能没加载。

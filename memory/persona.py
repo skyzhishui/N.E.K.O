@@ -28,7 +28,7 @@ Key features:
   all rendering sections; suppress has highest priority)
 - Contradiction detection → queued for batch correction via LLM
 - Auto-migration from legacy settings files and v1 entity names
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import asyncio
@@ -1506,7 +1506,7 @@ class PersonaManager:
         use that character's own ``昵称`` — on this path ``aadd_fact`` etc.
         explicitly know the target character, avoiding misuse of the active
         character's nicknames in multi-character setups.
-        """
+        """  # noqa: DOCSTRING_CJK
         return collect_stop_names(self._config_manager, lanlan_name)
 
     async def _aget_entity_stop_names(self, lanlan_name: str | None = None) -> list[str]:
@@ -2663,7 +2663,7 @@ class PersonaManager:
             score-trim candidate pool (suppressed entries excluded; they go
             to the dedicated "暂不主动提及" ("not proactively mentioned for
             now") section in compose).
-        """
+        """  # noqa: DOCSTRING_CJK
         protected_entries: list[tuple[str, dict]] = []
         non_protected_by_entity: dict[str, list[dict]] = defaultdict(list)
         for entity_key, section in persona.items():
@@ -2737,7 +2737,7 @@ class PersonaManager:
         Within each entity section: protected entries first (deterministic
         order from persona file) then non-protected kept by score-trim,
         preserving the trim-order (which is score DESC).
-        """
+        """  # noqa: DOCSTRING_CJK
         master_name = name_mapping.get('human', '主人')
         ai_name = name
         _headers = {
@@ -2955,7 +2955,7 @@ class PersonaManager:
         Suppressed entries are rendered in a separate "暂不主动提及" ("not
         proactively mentioned for now") section, NOT in their original
         sections. suppress has highest priority.
-        """
+        """  # noqa: DOCSTRING_CJK
         # Refresh suppressions before rendering so expired cooldowns are released
         self.update_suppressions(name)
         persona = self.ensure_persona(name)

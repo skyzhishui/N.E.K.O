@@ -1323,7 +1323,7 @@ def _resolve_master_for_template(master_name: str | None, lang_key: str) -> str:
     function body: in module top-level execution order this helper appears before
     the PROACTIVE_ACTION_NOTE_PLACEHOLDERS dict definition, so the lazy in-body
     lookup dodges the forward reference.
-    """
+    """  # noqa: DOCSTRING_CJK
     name = " ".join(str(master_name or "").split())
     if name:
         return name
@@ -2724,7 +2724,7 @@ def get_proactive_generate_prompt(
     master_name pre-expands the {master} placeholder inside the meme instructions
     into the user's actual configured name (or the localized neutral fallback such
     as "对方"/"them"), avoiding objectifying titles like "主人".
-    """
+    """  # noqa: DOCSTRING_CJK
     lang_key = _normalize_prompt_language(lang)
     prompt = PROACTIVE_GENERATE_PROMPTS.get(
         lang_key, PROACTIVE_GENERATE_PROMPTS.get("en", PROACTIVE_GENERATE_PROMPTS["zh"])
@@ -3804,7 +3804,7 @@ def get_proactive_music_playing_hint(
     then run through the overall .format(), so both track_name and master_name must
     have `{` / `}` escaped first — otherwise a quirky user-chosen track/user name
     would make the outer .format() raise KeyError (Codex review #1043 r3164599885).
-    """
+    """  # noqa: DOCSTRING_CJK
     lang_key = _normalize_prompt_language(lang)
     template = PROACTIVE_MUSIC_PLAYING_HINT.get(
         lang_key,
@@ -4786,7 +4786,7 @@ def build_proactive_action_note(
     back to the localized placeholder; if source_links contains no matching material
     at all, return an empty string instead of fabricating "unknown / unknown /
     unknown" to pester the LLM context.
-    """
+    """  # noqa: DOCSTRING_CJK
     if not source_links:
         return ""
     channel = (primary_channel or "").strip().lower()

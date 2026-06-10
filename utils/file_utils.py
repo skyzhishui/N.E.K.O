@@ -299,7 +299,7 @@ def robust_json_loads(raw: str) -> Any:
     single-quoted strings (including mixed-quote scenarios), stray hallucinated
     chars between structural tokens (e.g. ``,결{`` → ``,{``), and over-escaped
     ``---`` memo dividers in string values.
-    """
+    """  # noqa: DOCSTRING_CJK
     parsed, ok = _try_json_loads(raw)
     if ok:
         return _normalize_overescaped_newlines(parsed)

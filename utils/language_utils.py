@@ -709,7 +709,7 @@ def detect_tts_language_hint(text: str) -> Optional[str]:
       - Qwen:      session.language_type="Japanese"
       - lanlan.tech (step free): voice_label={"language": "日语"}
       - lanlan.app (step free):  language_code="ja-JP"
-    """
+    """  # noqa: DOCSTRING_CJK
     if text and _TTS_KANA_RE.search(text):
         return 'ja'
     return None

@@ -467,7 +467,7 @@ class TimeIndexedMemory:
         scores ("主人喜欢猫" vs "主人讨厌狗" would still get nonzero similarity
         through the shared "主人"). Only stripping on both the index side and
         the query side lets BM25 score entirely around substantive content.
-        """
+        """  # noqa: DOCSTRING_CJK
         self._assert_timeindex_writable(lanlan_name)
         if not self._ensure_engine_exists(lanlan_name):
             return

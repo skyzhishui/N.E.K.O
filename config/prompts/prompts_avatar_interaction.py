@@ -1645,7 +1645,7 @@ def _build_avatar_interaction_memory_meta(
     When an empty string is passed in, falls back to the localized neutral word from
     ``_AVATAR_INTERACTION_MEMORY_NOTE_MASTER_FALLBACK`` (zh="对方", en="they", etc.),
     which likewise never degrades to an objectifying title.
-    """
+    """  # noqa: DOCSTRING_CJK
     locale = _avatar_interaction_locale(language)
     templates = _AVATAR_INTERACTION_MEMORY_NOTE_TEMPLATES.get(locale, {})
     fallback = _AVATAR_INTERACTION_MEMORY_NOTE_MASTER_FALLBACK

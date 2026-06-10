@@ -4450,7 +4450,7 @@ def _extract_tool_intent_as_text(refusal_text: str) -> str:
     output: "I'll search for: 中国到日本 机票价格, China to Japan flight prices..."
 
     This lets OpenFang use the text as the agent's reply instead of trying to execute an incompatible tool call.
-    """
+    """  # noqa: DOCSTRING_CJK
     import re as _re
 
     cleaned = refusal_text.replace("Malformed function call: ", "").strip()

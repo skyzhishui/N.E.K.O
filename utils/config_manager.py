@@ -2174,7 +2174,7 @@ class ConfigManager:
         This method should be called after ``migrate_config_files`` /
         ``migrate_memory_files``, when ``characters.json`` is in place. Any failure is
         only logged, never raised — startup must not be blocked.
-        """
+        """  # noqa: DOCSTRING_CJK
         try:
             # get_legacy_app_root_candidates 已排除当前 app_docs_dir，且去重
             legacy_roots = list(self.get_legacy_app_root_candidates() or [])

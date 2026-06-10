@@ -86,7 +86,7 @@ Exit status is 1 when any violation is found, 0 otherwise.
 Usage::
 
     uv run python scripts/check_api_trailing_slash.py [paths...]
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import argparse

@@ -613,7 +613,7 @@ def get_localized_default_characters(language: str | None = None) -> dict:
 
     Returns:
         Localized copy of DEFAULT_CHARACTERS_CONFIG
-    """
+    """  # noqa: DOCSTRING_CJK
     # 获取语言代码
     if language is None:
         try:

@@ -1606,7 +1606,7 @@ def _parse_web_screening_result(text: str) -> dict | None:
       来源：xxx / Source: xxx
       简述：xxx / Summary: xxx
     Returns dict(title, source, number) or None
-    """
+    """  # noqa: DOCSTRING_CJK
     result = {}
     # ^ + re.MULTILINE 锚定行首，防止匹配到 "有值得分享的话题：" 等前缀行
     # [ \t]* 替代 \s*，只吃水平空白，避免跨行捕获到下一行内容
@@ -7393,7 +7393,7 @@ def _keyword_matches(keyword: str, norm_text: str) -> bool:
     go through a word-boundary regex (``\\b...\\b``); other scripts (CJK /
     Hiragana / Katakana / Hangul) use substring matching — Python's regex counts
     those characters as \\w, so adding \\b would cause misses (in "我好啊" there
-    is no boundary before '好')."""
+    is no boundary before '好')."""  # noqa: DOCSTRING_CJK
     if not keyword or not norm_text:
         return False
     if _LETTER_ONLY_KW_RE.fullmatch(keyword):

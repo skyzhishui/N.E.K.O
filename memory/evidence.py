@@ -96,7 +96,7 @@ def initial_reinforcement_from_importance(max_importance: int) -> float:
     Thresholds are MAX-based (not avg / sum) because one high-importance
     fact in the batch is enough to mark the synthesized reflection as
     important; averaging would dilute that signal.
-    """
+    """  # noqa: DOCSTRING_CJK
     try:
         imp = int(max_importance)
     except (ValueError, TypeError):

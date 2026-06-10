@@ -61,7 +61,7 @@ The regex templates are lenient. Cost of a false kill = the user says an
 equivalent sentence once more; cost of a miss = the user gets offended again —
 so we lean toward over-killing. Terms are stored only when length ∈ [2, 40];
 out-of-range ones are dropped.
-"""
+"""  # noqa: DOCSTRING_CJK
 from __future__ import annotations
 
 import os
