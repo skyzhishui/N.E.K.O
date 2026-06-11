@@ -36,10 +36,10 @@ Nested ``{lang_code: {key: str}}`` tables (resolved via
 ``format_activity_state_section`` to render the snapshot:
 
 * ``ACTIVITY_STATE_LABELS`` — human-readable label for each
-  ``ActivityState`` (e.g. ``focused_work`` → ``专注工作中``).
+  ``ActivityState`` (e.g. ``focused_work`` -> ``focused work``).
 * ``ACTIVITY_PROPENSITY_DIRECTIVES`` — short directive sentence for
-  each ``Propensity`` (e.g. ``restricted_screen_only`` →
-  ``只就屏幕内容轻聊一句``).
+  each ``Propensity`` (e.g. ``restricted_screen_only`` ->
+  ``comment briefly on the screen only``).
 * ``ACTIVITY_REASON_TEMPLATES`` — ``str.format``-able templates for
   each structured reason code emitted by the state machine.
 * ``ACTIVITY_STATE_SECTION_LABELS`` — header / footer / period names
